@@ -1,0 +1,47 @@
+MegaSol SMS — Production deploy (cPanel subdomain root)
+=========================================================
+
+Build locally:
+  powershell -ExecutionPolicy Bypass -File deploy\build-package-root.ps1
+
+Output: deploy\megasol-deploy.zip (not committed to git — rebuild when needed)
+
+
+STEP 1 — Database
+-----------------
+Option A: Export deploy\megasol_sms.sql from phpMyAdmin, rebuild zip (included in setup/)
+Option B: On server with SSH: php artisan migrate --force --seed
+
+
+STEP 2 — Upload and extract
+---------------------------
+1. Upload megasol-deploy.zip to subdomain document root
+2. Extract in cPanel File Manager (not FTP folder-by-folder)
+3. Document root must be the folder containing index.php (NOT .../public)
+
+
+STEP 3 — Environment
+--------------------
+Copy .env.production → .env
+Set APP_KEY (php artisan key:generate if empty), DB_* credentials, APP_URL (https://)
+
+
+STEP 4 — Permissions
+--------------------
+storage/ and bootstrap/cache/ writable (755 or 775)
+
+
+STEP 5 — PHP 8.3+
+-----------------
+cPanel → Select PHP Version → 8.3 or higher
+
+
+STEP 6 — Cron
+-------------
+* * * * * php /path/to/subdomain/root/artisan schedule:run
+
+
+Branding uploads
+----------------
+Logos are saved to storage/app/public/ and mirrored to public/storage/
+automatically (see App\Support\PublicDisk). No storage:link required on cPanel.
