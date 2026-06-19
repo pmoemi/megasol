@@ -12,8 +12,11 @@ Route::post('/webhooks/africastalking/dlr', [AfricasTalkingWebhookController::cl
 Route::post('/webhooks/africastalking/inbound', [AfricasTalkingWebhookController::class, 'inbound'])
     ->name('webhooks.africastalking.inbound');
 
-// Header search (authenticated)
-Route::middleware('auth')->get('/search/customers', function (Request $request) {
+// Header search (authenticated). These endpoints are called by the SPA shell
+// with the session cookie, so they need the web middleware group (cookies +
+// session) for the session-based auth guard to resolve the user. Without it the
+// `api` group has no session and every request 401s — silently breaking search.
+Route::middleware(['web', 'auth'])->get('/search/customers', function (Request $request) {
     $q = trim($request->get('q', ''));
     if (strlen($q) < 2) {
         return response()->json(['data' => []]);
@@ -33,7 +36,7 @@ Route::middleware('auth')->get('/search/customers', function (Request $request) 
 });
 
 // In-app notifications (derived from system state)
-Route::middleware('auth')->get('/notifications', function () {
+Route::middleware(['web', 'auth'])->get('/notifications', function () {
     $notifications = collect();
 
     // Overdue customers notification

@@ -41,6 +41,12 @@ STEP 6 — Cron
 * * * * * php /path/to/subdomain/root/artisan schedule:run
 
 
+STEP 7 — After code updates (no SSH)
+------------------------------------
+Settings → System → Application cache → Clear all caches
+(Requires ALLOW_WEB_CACHE_CLEAR=true in .env — default on.)
+
+
 Branding uploads
 ----------------
 Logos are saved to storage/app/public/ and mirrored to public/storage/

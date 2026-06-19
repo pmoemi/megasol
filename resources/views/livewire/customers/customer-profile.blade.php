@@ -8,6 +8,7 @@
     ];
     $scheduleColors = ['paid' => 'bg-success/15 text-success','partial' => 'bg-warning/15 text-warning','overdue' => 'bg-danger/15 text-danger','pending' => 'bg-surface text-muted','waived' => 'bg-info/15 text-info'];
     $assetColors = ['active' => 'bg-success/15 text-success','faulty' => 'bg-warning/15 text-warning','repossessed' => 'bg-danger/15 text-danger','returned' => 'bg-surface text-muted','decommissioned' => 'bg-surface text-muted'];
+    $repaymentStatusColors = ['success' => 'bg-success/15 text-success', 'danger' => 'bg-danger/15 text-danger', 'info' => 'bg-info/15 text-info'];
     $smsStatusColors = ['queued' => 'bg-warning/15 text-warning','sent' => 'bg-info/15 text-info','success' => 'bg-success/15 text-success','delivered' => 'bg-success/15 text-success','failed' => 'bg-danger/15 text-danger','rejected' => 'bg-danger/15 text-danger'];
     $avatarPalette = ['bg-brand/15 text-brand','bg-info/15 text-info','bg-success/15 text-success','bg-warning/15 text-warning','bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'];
 @endphp
@@ -43,11 +44,6 @@
                 </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-                <a href="{{ route('customers.edit', $customer) }}" wire:navigate
-                   class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface border border-border rounded-xl hover:bg-surface-2 transition-colors">
-                    <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                    Edit
-                </a>
                 <button type="button" wire:click="setTab('messages')"
                    class="btn-primary inline-flex items-center gap-1.5 text-sm font-semibold">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -77,7 +73,10 @@
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div class="bg-surface-2 rounded-2xl border border-border p-5">
                 <p class="text-xs font-medium text-muted uppercase tracking-wider">Outstanding</p>
-                <p class="text-2xl font-bold text-ink mt-1">KES {{ number_format((float) $customer->outstanding_balance, 2) }}</p>
+                <p class="text-2xl font-bold text-ink mt-1">KES {{ number_format((float) ($overview['outstanding_balance'] ?? $customer->outstanding_balance), 2) }}</p>
+                @if($overview['has_plan_balances'] ?? false)
+                <p class="text-xs text-muted mt-1">Unlock price minus payments</p>
+                @endif
             </div>
             <div class="bg-surface-2 rounded-2xl border border-border p-5">
                 <p class="text-xs font-medium text-muted uppercase tracking-wider">Token Balance</p>
@@ -86,12 +85,56 @@
             <div class="bg-surface-2 rounded-2xl border border-border p-5">
                 <p class="text-xs font-medium text-muted uppercase tracking-wider">Days in Arrears</p>
                 <p class="text-2xl font-bold mt-1 {{ $customer->days_in_arrears > 0 ? 'text-danger' : 'text-ink' }}">{{ number_format($customer->days_in_arrears) }}</p>
+                <p class="text-xs text-muted mt-1">
+                    @if($customer->token_balance > 0)
+                        Prepaid tokens active
+                    @elseif($customer->isHirePurchaseAccount())
+                        Hire Purchase installment arrears
+                    @else
+                        Days since last payment
+                    @endif
+                </p>
             </div>
             <div class="bg-surface-2 rounded-2xl border border-border p-5">
                 <p class="text-xs font-medium text-muted uppercase tracking-wider">Total Paid</p>
-                <p class="text-2xl font-bold text-ink mt-1">KES {{ number_format($customer->total_paid, 2) }}</p>
+                <p class="text-2xl font-bold text-ink mt-1">KES {{ number_format((float) ($overview['total_paid'] ?? $customer->total_paid), 2) }}</p>
             </div>
         </div>
+
+        @if(! empty($overview['units'] ?? []))
+        <div class="bg-surface-2 rounded-2xl border border-border overflow-hidden">
+            <div class="px-5 py-4 border-b border-border">
+                <h3 class="text-sm font-semibold text-ink">Balance by Unit</h3>
+                <p class="text-xs text-muted mt-0.5">Per-product unlock price and payments from PayGro plans.</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="bg-surface border-b border-border">
+                            <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Unit</th>
+                            <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden md:table-cell">Plan</th>
+                            <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Unlock Price</th>
+                            <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Paid</th>
+                            <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Balance</th>
+                            <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Daily</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-border/60">
+                        @foreach($overview['units'] as $unit)
+                        <tr class="hover:bg-surface transition-colors">
+                            <td class="px-4 py-3 text-sm font-mono text-ink">{{ $unit['serial'] }}</td>
+                            <td class="px-4 py-3 text-sm text-muted hidden md:table-cell">{{ $unit['plan_name'] ?? '—' }}</td>
+                            <td class="px-4 py-3 text-sm text-right hidden sm:table-cell whitespace-nowrap">KES {{ number_format((float) $unit['unlock_price'], 2) }}</td>
+                            <td class="px-4 py-3 text-sm text-right hidden sm:table-cell whitespace-nowrap">KES {{ number_format((float) $unit['paid'], 2) }}</td>
+                            <td class="px-4 py-3 text-sm font-semibold text-right whitespace-nowrap">KES {{ number_format((float) $unit['balance'], 2) }}</td>
+                            <td class="px-4 py-3 text-sm text-right hidden lg:table-cell whitespace-nowrap">KES {{ number_format((float) $unit['daily_payment'], 2) }}</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @endif
 
         {{-- Details --}}
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -140,39 +183,188 @@
 
     {{-- ════════════════════ PAYMENTS ════════════════════ --}}
     @if($tab === 'payments')
-    <div class="bg-surface-2 rounded-2xl border border-border overflow-hidden">
-        @if($payments->count() > 0)
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead>
-                    <tr class="bg-surface border-b border-border">
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Date</th>
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Type</th>
-                        <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Amount</th>
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Method</th>
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden md:table-cell">Reference</th>
-                        <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Days</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-border/60">
-                    @foreach($payments as $p)
-                    <tr class="hover:bg-surface transition-colors">
-                        <td class="px-4 py-3 text-sm text-ink whitespace-nowrap">{{ $p->paid_at?->format('M j, Y') }}</td>
-                        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium bg-surface text-muted capitalize">{{ str_replace('_', ' ', $p->type) }}</span></td>
-                        <td class="px-4 py-3 text-sm font-semibold text-ink text-right whitespace-nowrap">KES {{ number_format((float) $p->amount, 2) }}</td>
-                        <td class="px-4 py-3 text-sm text-muted hidden sm:table-cell capitalize">{{ $p->method ?? '—' }}</td>
-                        <td class="px-4 py-3 text-sm text-muted hidden md:table-cell font-mono">{{ $p->reference ?? '—' }}</td>
-                        <td class="px-4 py-3 text-sm text-muted text-right hidden lg:table-cell">{{ $p->days_credited ? '+'.$p->days_credited : '—' }}</td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
+    <div class="space-y-4">
+        {{-- Sub-tab nav --}}
+        <div class="border-b border-border">
+            <nav class="flex gap-4 -mb-px overflow-x-auto">
+                @foreach($paymentsSubTabs as $key => $label)
+                <button type="button" wire:click="setPaymentsSubTab('{{ $key }}')"
+                        class="pb-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0
+                               {{ $paymentsSubTab === $key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink/80 hover:border-border' }}">
+                    {{ $label }}
+                </button>
+                @endforeach
+            </nav>
         </div>
-        <div class="px-4 py-3 border-t border-border">{{ $payments->links() }}</div>
-        @else
-        <div class="p-12 text-center">
-            <p class="text-sm font-semibold text-ink">No payments recorded</p>
-            <p class="text-xs text-muted mt-1">Payment history will appear here once payments are synced or recorded.</p>
+
+        {{-- Repayment Schedule --}}
+        @if($paymentsSubTab === 'schedule')
+        <div class="space-y-3">
+            @if(count($scheduleUnits ?? []) > 0)
+                @foreach($scheduleUnits as $unit)
+                <div class="bg-surface-2 rounded-xl border border-border overflow-hidden">
+                    <div class="px-3 py-2.5 border-b border-border flex flex-wrap items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                                @if($unit['asset'])
+                                <span class="text-xs font-mono text-ink">{{ $unit['asset']->unit_serial }}</span>
+                                @endif
+                                @if($unit['plan_name'])
+                                <span class="text-xs text-muted">{{ $unit['plan_name'] }}</span>
+                                @endif
+                                @if($unit['sales_identifier'] ?? null)
+                                <span class="text-xs text-muted font-mono">{{ $unit['sales_identifier'] }}</span>
+                                @endif
+                            </div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-medium {{ $repaymentStatusColors[$unit['repayment_meta']['color']] ?? 'bg-surface text-muted' }}">
+                            {{ $unit['repayment_meta']['label'] }}
+                        </span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="bg-surface border-b border-border">
+                                    <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2">#</th>
+                                    <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2">Due</th>
+                                    <th class="text-right text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2">Due Amt</th>
+                                    <th class="text-right text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden sm:table-cell">Paid</th>
+                                    <th class="text-right text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden md:table-cell">Balance</th>
+                                    <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-border/60">
+                                @foreach($unit['installments'] as $s)
+                                <tr class="hover:bg-surface transition-colors">
+                                    <td class="px-3 py-2 text-xs text-muted">{{ $s->installment_number ?: '—' }}</td>
+                                    <td class="px-3 py-2 text-xs text-ink whitespace-nowrap">{{ $s->due_date?->format('M j, Y') }}</td>
+                                    <td class="px-3 py-2 text-xs text-ink text-right whitespace-nowrap">KES {{ number_format((float) $s->amount_due, 2) }}</td>
+                                    <td class="px-3 py-2 text-xs text-muted text-right hidden sm:table-cell whitespace-nowrap">KES {{ number_format((float) $s->amount_paid, 2) }}</td>
+                                    <td class="px-3 py-2 text-xs text-ink text-right hidden md:table-cell whitespace-nowrap">KES {{ number_format($s->balance, 2) }}</td>
+                                    <td class="px-3 py-2"><span class="px-1.5 py-0.5 rounded-full text-[11px] font-medium capitalize {{ $scheduleColors[$s->status] ?? 'bg-surface text-muted' }}">{{ $s->status }}</span></td>
+                                </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                    @if($unit['installments']->hasPages())
+                    <div class="px-3 py-2 border-t border-border text-sm">{{ $unit['installments']->links() }}</div>
+                    @endif
+                </div>
+                @endforeach
+            @else
+                <div class="bg-surface-2 rounded-xl border border-border px-4 py-8 text-center">
+                    <p class="text-sm font-medium text-ink">No repayment schedule</p>
+                    <p class="text-xs text-muted mt-1 max-w-sm mx-auto">Sync PayGro under <a href="{{ route('settings.paygro') }}" wire:navigate class="text-brand hover:underline">Settings → PayGro</a>.</p>
+                </div>
+            @endif
+        </div>
+        @endif
+
+        {{-- Payment History --}}
+        @if($paymentsSubTab === 'history')
+        <div class="space-y-3">
+            {{-- Compact stats + filter --}}
+            <div class="bg-surface-2 rounded-xl border border-border px-3 py-2.5">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 flex-1 min-w-0">
+                        <div>
+                            <p class="text-[11px] font-medium text-muted uppercase tracking-wide">Total Paid</p>
+                            <p class="text-sm font-semibold text-ink">KES {{ number_format((float) ($paymentSummary['total_amount'] ?? 0), 2) }}</p>
+                            <p class="text-[11px] text-muted">{{ number_format($paymentSummary['total_count'] ?? 0) }} txn{{ ($paymentSummary['total_count'] ?? 0) === 1 ? '' : 's' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-medium text-muted uppercase tracking-wide">Last Payment</p>
+                            @if($paymentSummary['last_payment_at'] ?? null)
+                            <p class="text-sm font-semibold text-ink">{{ $paymentSummary['last_payment_at']->format('M j, Y') }}</p>
+                            <p class="text-[11px] text-muted">{{ $paymentSummary['last_payment_at']->format('g:i A') }}</p>
+                            @else
+                            <p class="text-sm text-muted">—</p>
+                            @endif
+                        </div>
+                        <div>
+                            <p class="text-[11px] font-medium text-muted uppercase tracking-wide">Days Credited</p>
+                            <p class="text-sm font-semibold text-ink">{{ number_format($paymentSummary['total_days_credited'] ?? 0) }}</p>
+                        </div>
+                    </div>
+                    @if(($paymentAssets ?? collect())->count() > 0)
+                    <div class="shrink-0 lg:w-56">
+                        <label class="sr-only" for="payment-asset-filter">Filter by asset</label>
+                        <select id="payment-asset-filter" wire:model.live="paymentAssetFilter" class="input text-sm py-1.5 h-9">
+                            <option value="">All assets</option>
+                            @foreach($paymentAssets as $asset)
+                            @php
+                                $assetMeta = is_array($asset->meta) ? $asset->meta : [];
+                                $planName = trim((string) ($assetMeta['paygro_payment_plan'] ?? ''));
+                            @endphp
+                            <option value="{{ $asset->id }}">
+                                {{ $asset->unit_serial ?: 'Unit #'.$asset->id }}@if($planName) — {{ $planName }}@endif
+                            </option>
+                            @endforeach
+                        </select>
+                    </div>
+                    @endif
+                </div>
+            </div>
+
+            @if($payments->count() > 0)
+            <div class="bg-surface-2 rounded-xl border border-border overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="bg-surface border-b border-border">
+                                <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2">Date</th>
+                                <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden md:table-cell">Unit</th>
+                                <th class="text-right text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2">Amount</th>
+                                <th class="text-right text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden sm:table-cell">Days</th>
+                                <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden lg:table-cell">Type</th>
+                                <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden xl:table-cell">Method</th>
+                                <th class="text-left text-[11px] font-semibold text-muted uppercase tracking-wider px-3 py-2 hidden xl:table-cell">Ref</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-border/60">
+                            @foreach($payments as $p)
+                            @php
+                                $pMeta = is_array($p->meta) ? $p->meta : [];
+                                $typeLabel = trim((string) ($pMeta['payment_type_text'] ?? '')) ?: str_replace('_', ' ', ucfirst($p->type));
+                                $methodLabel = trim((string) ($pMeta['payment_source_name'] ?? '')) ?: ($p->method ? ucfirst($p->method) : '—');
+                                $unitSerial = trim((string) ($pMeta['product_serial_number'] ?? ''));
+                            @endphp
+                            <tr class="hover:bg-surface transition-colors">
+                                <td class="px-3 py-2 text-xs text-ink whitespace-nowrap">
+                                    {{ $p->paid_at?->format('M j, Y g:i A') ?? '—' }}
+                                </td>
+                                <td class="px-3 py-2 text-xs text-muted hidden md:table-cell font-mono max-w-[140px] truncate" title="{{ $unitSerial }}">{{ $unitSerial ?: '—' }}</td>
+                                <td class="px-3 py-2 text-xs font-semibold text-ink text-right whitespace-nowrap">KES {{ number_format((float) $p->amount, 2) }}</td>
+                                <td class="px-3 py-2 text-xs text-right hidden sm:table-cell whitespace-nowrap">
+                                    @if($p->days_credited)
+                                    <span class="text-success font-medium">+{{ $p->days_credited }}</span>
+                                    @else
+                                    <span class="text-muted">—</span>
+                                    @endif
+                                </td>
+                                <td class="px-3 py-2 text-xs text-muted hidden lg:table-cell">{{ $typeLabel }}</td>
+                                <td class="px-3 py-2 text-xs text-muted hidden xl:table-cell">{{ $methodLabel }}</td>
+                                <td class="px-3 py-2 text-xs text-muted hidden xl:table-cell font-mono max-w-[100px] truncate" title="{{ $p->reference }}">{{ $p->reference ?? '—' }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-3 py-2 border-t border-border text-sm">{{ $payments->links() }}</div>
+            </div>
+            @else
+                <div class="bg-surface-2 rounded-xl border border-border px-4 py-8 text-center">
+                    <p class="text-sm font-medium text-ink">No payments recorded</p>
+                    <p class="text-xs text-muted mt-1 max-w-sm mx-auto">
+                        @if($paymentAssetFilter !== '')
+                            No payments match this asset.
+                        @else
+                            Sync PayGro under <a href="{{ route('settings.paygro') }}" wire:navigate class="text-brand hover:underline">Settings → PayGro</a>.
+                        @endif
+                    </p>
+                </div>
+            @endif
         </div>
         @endif
     </div>
@@ -197,6 +389,21 @@
                 </button>
             </div>
         </div>
+        @if(($payGroMatchSerials ?? collect())->isEmpty())
+        <div class="px-5 py-3 border-b border-border bg-warning/10">
+            <p class="text-xs text-warning">
+                No PayGro units found for this customer. Ensure they exist in PayGro with a matching name, then run
+                <a href="{{ route('settings.paygro') }}" wire:navigate class="underline font-medium">PayGro sync</a>.
+            </p>
+        </div>
+        @else
+        <div class="px-5 py-3 border-b border-border bg-surface/40">
+            <p class="text-xs text-muted">
+                Matching unit serials:
+                <span class="font-mono text-ink">{{ ($payGroMatchSerials ?? collect())->join(', ') }}</span>
+            </p>
+        </div>
+        @endif
         @if($payGroTokenStatus || $latestPayGroToken)
         <div class="px-5 py-3 border-b border-border bg-surface/40">
             @if($payGroTokenStatus)
@@ -206,11 +413,19 @@
 
             @if($latestPayGroToken)
             <p class="text-xs text-muted mt-2">
-                Latest token:
+                Latest token
+                @if(($latestPayGroToken['token_source'] ?? '') === 'payment')
+                <span class="text-ink">(from payment)</span>
+                @endif
+                :
                 <span class="font-semibold text-ink font-mono">{{ $latestPayGroToken['generated_token_value'] ?? '—' }}</span>
                 for
                 <span class="font-mono text-ink">{{ $latestPayGroToken['product_serial_number'] ?? '—' }}</span>
+                @if(($latestPayGroToken['token_source'] ?? '') === 'payment')
+                paid {{ $latestPayGroToken['token_generation_date_display'] ?? '—' }}.
+                @else
                 generated {{ $latestPayGroToken['token_generation_date_display'] ?? '—' }}.
+                @endif
             </p>
             @endif
         </div>
@@ -269,7 +484,11 @@
                     </thead>
                     <tbody class="divide-y divide-border/60">
                         @foreach($tokenSmsMessages as $sms)
-                        @php($paygroToken = $sms->meta['paygro_token'] ?? [])
+                        @php
+                            $paygroToken = is_array($sms->meta ?? null)
+                                ? ($sms->meta['paygro_token'] ?? [])
+                                : [];
+                        @endphp
                         <tr class="hover:bg-surface transition-colors">
                             <td class="px-4 py-3 text-sm text-ink whitespace-nowrap">{{ $sms->created_at?->format('M j, Y g:i A') }}</td>
                             <td class="px-4 py-3">
@@ -309,130 +528,38 @@
     </div>
     @endif
 
-    {{-- ════════════════════ SCHEDULE ════════════════════ --}}
-    @if($tab === 'schedule')
-    <div class="bg-surface-2 rounded-2xl border border-border overflow-hidden">
-        <div class="px-5 py-4 border-b border-border"><h3 class="text-sm font-semibold text-ink">Repayment Schedule</h3></div>
-        @if($schedule->count() > 0)
-        <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead>
-                    <tr class="bg-surface border-b border-border">
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">#</th>
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Due Date</th>
-                        <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Amount Due</th>
-                        <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Paid</th>
-                        <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden md:table-cell">Balance</th>
-                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Status</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-border/60">
-                    @foreach($schedule as $s)
-                    <tr class="hover:bg-surface transition-colors">
-                        <td class="px-4 py-3 text-sm text-muted">{{ $s->installment_number }}</td>
-                        <td class="px-4 py-3 text-sm text-ink whitespace-nowrap">{{ $s->due_date?->format('M j, Y') }}</td>
-                        <td class="px-4 py-3 text-sm text-ink text-right whitespace-nowrap">KES {{ number_format((float) $s->amount_due, 2) }}</td>
-                        <td class="px-4 py-3 text-sm text-muted text-right hidden sm:table-cell whitespace-nowrap">KES {{ number_format((float) $s->amount_paid, 2) }}</td>
-                        <td class="px-4 py-3 text-sm text-ink text-right hidden md:table-cell whitespace-nowrap">KES {{ number_format($s->balance, 2) }}</td>
-                        <td class="px-4 py-3"><span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ $scheduleColors[$s->status] ?? 'bg-surface text-muted' }}">{{ $s->status }}</span></td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </div>
-        @else
-        <div class="p-12 text-center">
-            <p class="text-sm font-semibold text-ink">No repayment schedule</p>
-            <p class="text-xs text-muted mt-1">Installment schedules will appear here once configured.</p>
-        </div>
-        @endif
-    </div>
-    @endif
-
     {{-- ════════════════════ ASSETS ════════════════════ --}}
     @if($tab === 'assets')
     <div class="space-y-4">
-        <div class="flex items-center justify-between gap-3">
-            <div>
-                <h3 class="text-sm font-semibold text-ink">Units & Assets</h3>
-                <p class="text-xs text-muted mt-0.5">Solar units assigned to this customer, with installation and warranty details.</p>
-            </div>
-            @if(!$showAssetForm)
-            <button type="button" wire:click="newAsset" class="btn-primary inline-flex items-center gap-1.5 text-sm">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                Assign Unit
-            </button>
-            @endif
+        <div>
+            <h3 class="text-sm font-semibold text-ink">Units & Assets</h3>
+            <p class="text-xs text-muted mt-0.5">Synced from PayGro — serial numbers, plans, and allocation dates update automatically.</p>
         </div>
-
-        {{-- Add / edit form --}}
-        @if($showAssetForm)
-        <div class="bg-surface-2 rounded-2xl border border-border p-5">
-            <h4 class="text-sm font-semibold text-ink mb-4">{{ $editingAssetId ? 'Edit Unit' : 'Assign a Unit' }}</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Unit Serial *</label>
-                    <input type="text" wire:model="assetUnitSerial" placeholder="e.g. SN-2A4F9C" class="input @error('assetUnitSerial') !border-danger @enderror">
-                    @error('assetUnitSerial') <p class="text-xs text-danger mt-1">{{ $message }}</p> @enderror
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Product Name</label>
-                    <input type="text" wire:model="assetProductName" placeholder="e.g. Solar Home Plus" class="input">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Model</label>
-                    <input type="text" wire:model="assetModel" placeholder="e.g. MS-300W" class="input">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Status</label>
-                    <select wire:model="assetStatus" class="input">
-                        @foreach(['active' => 'Active','faulty' => 'Faulty','repossessed' => 'Repossessed','returned' => 'Returned','decommissioned' => 'Decommissioned'] as $k => $v)
-                        <option value="{{ $k }}">{{ $v }}</option>
-                        @endforeach
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Installation Date</label>
-                    <input type="date" wire:model="assetInstallationDate" class="input @error('assetInstallationDate') !border-danger @enderror">
-                    @error('assetInstallationDate') <p class="text-xs text-danger mt-1">{{ $message }}</p> @enderror
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Warranty Expiry</label>
-                    <input type="date" wire:model="assetWarrantyExpiry" class="input @error('assetWarrantyExpiry') !border-danger @enderror">
-                    @error('assetWarrantyExpiry') <p class="text-xs text-danger mt-1">{{ $message }}</p> @enderror
-                </div>
-                <div class="sm:col-span-2">
-                    <label class="block text-sm font-medium text-ink/80 mb-1">Notes</label>
-                    <textarea wire:model="assetNotes" rows="2" class="input" placeholder="Installation notes, condition, location on site..."></textarea>
-                </div>
-            </div>
-            <div class="flex items-center gap-3 mt-4">
-                <button type="button" wire:click="saveAsset" class="btn-primary text-sm">{{ $editingAssetId ? 'Update Unit' : 'Assign Unit' }}</button>
-                <button type="button" wire:click="resetAssetForm" class="text-sm text-muted hover:text-ink">Cancel</button>
-            </div>
-        </div>
-        @endif
 
         @if($assets->count() > 0)
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             @foreach($assets as $a)
+            @php
+                $meta = is_array($a->meta) ? $a->meta : [];
+                $saleId = $meta['paygro_sales_identifier'] ?? null;
+                $planName = $meta['paygro_payment_plan'] ?? null;
+            @endphp
             <div class="bg-surface-2 rounded-2xl border border-border p-5" wire:key="asset-{{ $a->id }}">
                 <div class="flex items-start justify-between gap-3 mb-3">
                     <div class="min-w-0">
                         <h3 class="text-sm font-semibold text-ink truncate">{{ $a->product_name ?: 'Unit' }}</h3>
                         <p class="text-xs font-mono text-muted mt-0.5">{{ $a->unit_serial }}</p>
+                        @if($saleId)
+                        <p class="text-xs text-muted mt-0.5">Sale ID: <span class="font-mono">{{ $saleId }}</span></p>
+                        @endif
+                        @if($planName)
+                        <p class="text-xs text-muted mt-0.5">{{ $planName }}</p>
+                        @endif
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
+                        @php $unitRepayment = $a->repaymentStatusMeta(); @endphp
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium {{ $repaymentStatusColors[$unitRepayment['color']] ?? 'bg-surface text-muted' }}">{{ $unitRepayment['label'] }}</span>
                         <span class="px-2 py-0.5 rounded-full text-xs font-medium capitalize {{ $assetColors[$a->status] ?? 'bg-surface text-muted' }}">{{ $a->status }}</span>
-                        <div class="relative" x-data="{ open: false }">
-                            <button type="button" @click="open = !open" class="p-1 text-muted hover:text-ink rounded-lg hover:bg-surface transition-colors" aria-label="Unit actions">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
-                            </button>
-                            <div x-show="open" @click.outside="open = false" x-transition x-cloak class="absolute right-0 top-7 z-20 w-36 bg-surface-2 border border-border rounded-xl shadow-lg py-1">
-                                <button type="button" wire:click="editAsset({{ $a->id }})" @click="open = false" class="w-full text-left px-4 py-2 text-sm text-ink/80 hover:bg-surface transition-colors">Edit</button>
-                                <button type="button" wire:click="deleteAsset({{ $a->id }})" wire:confirm="Remove unit {{ $a->unit_serial }} from this customer?" @click="open = false" class="w-full text-left px-4 py-2 text-sm text-danger hover:bg-danger/10 transition-colors">Remove</button>
-                            </div>
-                        </div>
                     </div>
                 </div>
                 <div class="space-y-2">
@@ -456,14 +583,10 @@
             </div>
             @endforeach
         </div>
-        @elseif(!$showAssetForm)
+        @else
         <div class="bg-surface-2 rounded-2xl border border-border p-12 text-center">
-            <p class="text-sm font-semibold text-ink">No units assigned yet</p>
-            <p class="text-xs text-muted mt-1 mb-4">Register the solar unit this customer received, with its serial, installation date, and warranty.</p>
-            <button type="button" wire:click="newAsset" class="btn-primary inline-flex items-center gap-1.5 text-sm">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                Assign Unit
-            </button>
+            <p class="text-sm font-semibold text-ink">No units synced yet</p>
+            <p class="text-xs text-muted mt-1">Run <a href="{{ route('settings.paygro') }}" wire:navigate class="text-brand font-medium hover:underline">PayGro sync</a> to import units assigned to this customer.</p>
         </div>
         @endif
     </div>

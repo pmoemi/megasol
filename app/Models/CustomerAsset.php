@@ -39,6 +39,20 @@ class CustomerAsset extends Model
         return $this->warranty_expiry !== null && $this->warranty_expiry->isFuture();
     }
 
+    /**
+     * @return array{label: string, color: string}
+     */
+    public function repaymentStatusMeta(): array
+    {
+        $status = is_array($this->meta) ? (string) ($this->meta['paygro_repayment_status'] ?? 'active') : 'active';
+
+        return match ($status) {
+            'paid_off' => ['label' => 'Fully Paid', 'color' => 'success'],
+            'defaulting' => ['label' => 'At Risk', 'color' => 'danger'],
+            default => ['label' => 'Active', 'color' => 'info'],
+        };
+    }
+
     public function scopeInStock(Builder $query): Builder
     {
         return $query->whereNull('customer_id');

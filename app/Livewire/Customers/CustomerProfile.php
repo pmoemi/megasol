@@ -5,22 +5,36 @@ namespace App\Livewire\Customers;
 use App\Jobs\SendSmsJob;
 use App\Models\AgentAssignment;
 use App\Models\Customer;
-use App\Models\CustomerAsset;
+use App\Models\RepaymentSchedule;
 use App\Models\SmsMessage;
 use App\Models\User;
 use App\Services\Integrations\PayGroService;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 #[Layout('components.layouts.app')]
 class CustomerProfile extends Component
 {
+    use WithPagination;
     public Customer $customer;
 
     #[Url]
     public string $tab = 'overview';
+
+    #[Url]
+    public string $paymentsSubTab = 'schedule';
+
+    public string $paymentAssetFilter = '';
+
+    public array $paymentsSubTabs = [
+        'schedule' => 'Repayment Schedule',
+        'history' => 'Payment History',
+    ];
 
     // ── Collections assignment form ──────────────────────────────────────
     public bool $showAssignForm = false;
@@ -34,25 +48,6 @@ class CustomerProfile extends Component
     public ?int $updateAssignmentId = null;
 
     public string $assignmentStatus = '';
-
-    // ── Asset (unit) registration form ───────────────────────────────────
-    public bool $showAssetForm = false;
-
-    public ?int $editingAssetId = null;
-
-    public string $assetUnitSerial = '';
-
-    public string $assetProductName = '';
-
-    public string $assetModel = '';
-
-    public string $assetInstallationDate = '';
-
-    public string $assetWarrantyExpiry = '';
-
-    public string $assetStatus = 'active';
-
-    public string $assetNotes = '';
 
     // ── Send SMS (outbound, two-way conversation) ────────────────────────
     public string $smsBody = '';
@@ -68,7 +63,6 @@ class CustomerProfile extends Component
         'overview' => 'Overview',
         'payments' => 'Payments',
         'tokens' => 'Tokens',
-        'schedule' => 'Schedule',
         'assets' => 'Assets',
         'messages' => 'Messages',
         'collections' => 'Collections',
@@ -78,8 +72,22 @@ class CustomerProfile extends Component
     {
         $this->customer = $customer;
 
+        // The Schedule tab was merged into Payments — keep old links working.
+        if ($this->tab === 'schedule') {
+            $this->tab = 'payments';
+            $this->paymentsSubTab = 'schedule';
+        }
+
         if (! array_key_exists($this->tab, $this->tabs)) {
             $this->tab = 'overview';
+        }
+
+        if (! array_key_exists($this->paymentsSubTab, $this->paymentsSubTabs)) {
+            $this->paymentsSubTab = 'schedule';
+        }
+
+        if ($this->tab === 'tokens') {
+            $this->refreshPayGroUnits();
         }
     }
 
@@ -92,6 +100,36 @@ class CustomerProfile extends Component
     {
         if (array_key_exists($tab, $this->tabs)) {
             $this->tab = $tab;
+        }
+
+        if ($this->tab === 'tokens') {
+            $this->refreshPayGroUnits();
+        }
+    }
+
+    public function setPaymentsSubTab(string $subTab): void
+    {
+        if (array_key_exists($subTab, $this->paymentsSubTabs)) {
+            $this->paymentsSubTab = $subTab;
+            $this->resetPage('payments');
+        }
+    }
+
+    public function updatedPaymentAssetFilter(): void
+    {
+        $this->resetPage('payments');
+    }
+
+    protected function refreshPayGroUnits(): void
+    {
+        try {
+            app(PayGroService::class)->syncUnitsForCustomer($this->customer);
+            $this->customer->refresh();
+        } catch (\Throwable $e) {
+            Log::warning('PayGro unit sync failed for customer profile', [
+                'customer_id' => $this->customer->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -151,79 +189,6 @@ class CustomerProfile extends Component
         $this->dispatch('toast', type: 'success', message: 'Assignment updated.');
     }
 
-    // ── Asset (unit) management ──────────────────────────────────────────
-
-    public function newAsset(): void
-    {
-        $this->resetAssetForm();
-        $this->showAssetForm = true;
-    }
-
-    public function editAsset(int $assetId): void
-    {
-        $asset = $this->customer->assets()->findOrFail($assetId);
-
-        $this->editingAssetId = $asset->id;
-        $this->assetUnitSerial = $asset->unit_serial;
-        $this->assetProductName = $asset->product_name ?? '';
-        $this->assetModel = $asset->model ?? '';
-        $this->assetInstallationDate = $asset->installation_date?->format('Y-m-d') ?? '';
-        $this->assetWarrantyExpiry = $asset->warranty_expiry?->format('Y-m-d') ?? '';
-        $this->assetStatus = $asset->status;
-        $this->assetNotes = $asset->notes ?? '';
-        $this->showAssetForm = true;
-    }
-
-    public function saveAsset(): void
-    {
-        $validated = $this->validate([
-            'assetUnitSerial' => 'required|string|max:255',
-            'assetProductName' => 'nullable|string|max:255',
-            'assetModel' => 'nullable|string|max:255',
-            'assetInstallationDate' => 'nullable|date',
-            'assetWarrantyExpiry' => 'nullable|date',
-            'assetStatus' => 'required|in:active,faulty,repossessed,returned,decommissioned',
-            'assetNotes' => 'nullable|string|max:1000',
-        ]);
-
-        $payload = [
-            'unit_serial' => $this->assetUnitSerial,
-            'product_name' => $this->assetProductName ?: null,
-            'model' => $this->assetModel ?: null,
-            'installation_date' => $this->assetInstallationDate ?: null,
-            'warranty_expiry' => $this->assetWarrantyExpiry ?: null,
-            'status' => $this->assetStatus,
-            'notes' => $this->assetNotes ?: null,
-        ];
-
-        if ($this->editingAssetId) {
-            $this->customer->assets()->findOrFail($this->editingAssetId)->update($payload);
-            $message = 'Unit updated.';
-        } else {
-            $this->customer->assets()->create($payload);
-            $message = 'Unit assigned to customer.';
-        }
-
-        $this->resetAssetForm();
-        $this->dispatch('toast', type: 'success', message: $message);
-    }
-
-    public function deleteAsset(int $assetId): void
-    {
-        $this->customer->assets()->whereKey($assetId)->delete();
-        $this->dispatch('toast', type: 'success', message: 'Unit removed.');
-    }
-
-    public function resetAssetForm(): void
-    {
-        $this->reset([
-            'showAssetForm', 'editingAssetId', 'assetUnitSerial', 'assetProductName',
-            'assetModel', 'assetInstallationDate', 'assetWarrantyExpiry', 'assetNotes',
-        ]);
-        $this->assetStatus = 'active';
-        $this->resetValidation();
-    }
-
     // ── Send SMS ──────────────────────────────────────────────────────────
 
     public function sendSms(): void
@@ -251,11 +216,13 @@ class CustomerProfile extends Component
         $this->payGroTokenStatusIsError = false;
 
         try {
+            $this->refreshPayGroUnits();
+
             $token = $payGro->syncLatestFreeTokenForCustomer($this->customer);
 
             if (! $token) {
                 $this->latestPayGroToken = [];
-                $this->flashPayGroTokenStatus('No PayGro token was found for this customer\'s registered unit serials in the past month.', true);
+                $this->flashPayGroTokenStatus('No PayGro token was found for this customer\'s unit(s) in payment or free-token history.', true);
 
                 return;
             }
@@ -277,11 +244,13 @@ class CustomerProfile extends Component
         }
 
         try {
+            $this->refreshPayGroUnits();
+
             $token = $payGro->syncLatestFreeTokenForCustomer($this->customer);
 
             if (! $token) {
                 $this->latestPayGroToken = [];
-                $this->flashPayGroTokenStatus('No PayGro token was found for this customer\'s registered unit serials in the past month.', true);
+                $this->flashPayGroTokenStatus('No PayGro token was found for this customer\'s unit(s) in payment or free-token history.', true);
 
                 return;
             }
@@ -412,8 +381,23 @@ class CustomerProfile extends Component
 
         // Lazy-load only what the active tab needs.
         switch ($this->tab) {
+            case 'overview':
+                app(PayGroService::class)->refreshCustomerStatusesFromPayGro($customer);
+                $customer->refresh();
+                $data['overview'] = app(PayGroService::class)->buildCustomerFinancialOverview($customer);
+                break;
             case 'payments':
-                $data['payments'] = $customer->payments()->paginate(15, ['*'], 'payments');
+                if ($this->paymentsSubTab === 'history') {
+                    if ($this->paymentAssetFilter !== '' && ! $customer->assets()->whereKey((int) $this->paymentAssetFilter)->exists()) {
+                        $this->paymentAssetFilter = '';
+                    }
+
+                    $data['paymentAssets'] = $customer->assets()->orderBy('unit_serial')->get();
+                    $data['paymentSummary'] = $this->buildPaymentSummary($customer);
+                    $data['payments'] = $this->filteredPaymentsQuery($customer)->paginate(15, ['*'], 'payments');
+                } else {
+                    $data['scheduleUnits'] = $this->buildScheduleUnits($customer);
+                }
                 break;
             case 'tokens':
                 $data['tokens'] = $customer->tokenTransactions()->paginate(15, ['*'], 'tokens');
@@ -423,9 +407,7 @@ class CustomerProfile extends Component
                     ->latest('created_at')
                     ->limit(25)
                     ->get();
-                break;
-            case 'schedule':
-                $data['schedule'] = $customer->repaymentSchedules()->get();
+                $data['payGroMatchSerials'] = app(PayGroService::class)->customerPayGroSerials($customer);
                 break;
             case 'assets':
                 $data['assets'] = $customer->assets()->get();
@@ -440,5 +422,180 @@ class CustomerProfile extends Component
         }
 
         return view('livewire.customers.customer-profile', $data);
+    }
+
+    /**
+     * @return array<int, array{asset: ?\App\Models\CustomerAsset, sales_identifier: ?string, plan_name: ?string, repayment_meta: array{label: string, color: string}, installments: LengthAwarePaginator}>
+     */
+    protected function buildScheduleUnits(Customer $customer): array
+    {
+        $assets = $customer->assets()->get()->keyBy('id');
+        $perPage = 15;
+        $units = [];
+        $seenGroups = [];
+
+        $planRows = $customer->repaymentSchedules()
+            ->where('entry_type', RepaymentSchedule::ENTRY_PLAN)
+            ->orderBy('sales_identifier')
+            ->get();
+
+        foreach ($planRows as $planRow) {
+            $groupKey = $this->scheduleGroupKey($planRow->sales_identifier, $planRow->customer_asset_id);
+            $seenGroups[$groupKey] = true;
+
+            $units[] = $this->buildScheduleUnit(
+                $customer,
+                $assets,
+                $planRow->sales_identifier,
+                $planRow->customer_asset_id,
+                $planRow->payment_plan_name,
+                $perPage,
+                $groupKey,
+            );
+        }
+
+        $orphanGroups = $customer->repaymentSchedules()
+            ->where('entry_type', RepaymentSchedule::ENTRY_INSTALLMENT)
+            ->get(['sales_identifier', 'customer_asset_id', 'payment_plan_name'])
+            ->unique(fn ($row) => $this->scheduleGroupKey($row->sales_identifier, $row->customer_asset_id))
+            ->filter(function ($row) use ($seenGroups) {
+                $groupKey = $this->scheduleGroupKey($row->sales_identifier, $row->customer_asset_id);
+
+                return ! isset($seenGroups[$groupKey]);
+            });
+
+        foreach ($orphanGroups as $row) {
+            $groupKey = $this->scheduleGroupKey($row->sales_identifier, $row->customer_asset_id);
+
+            $units[] = $this->buildScheduleUnit(
+                $customer,
+                $assets,
+                $row->sales_identifier,
+                $row->customer_asset_id,
+                $row->payment_plan_name,
+                $perPage,
+                $groupKey,
+            );
+        }
+
+        return $units;
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, \App\Models\CustomerAsset>  $assets
+     * @return array{asset: ?\App\Models\CustomerAsset, sales_identifier: ?string, plan_name: ?string, repayment_meta: array{label: string, color: string}, installments: LengthAwarePaginator}
+     */
+    protected function buildScheduleUnit(
+        Customer $customer,
+        Collection $assets,
+        ?string $salesIdentifier,
+        ?int $customerAssetId,
+        ?string $planName,
+        int $perPage,
+        string $groupKey,
+    ): array {
+        $salesId = trim((string) ($salesIdentifier ?? ''));
+        $asset = is_numeric($customerAssetId) ? $assets->get((int) $customerAssetId) : null;
+
+        if (! $asset && $salesId !== '') {
+            $asset = $assets->first(function ($candidate) use ($salesId) {
+                $meta = is_array($candidate->meta) ? $candidate->meta : [];
+                $candidateSalesId = trim((string) ($meta['paygro_sales_identifier'] ?? ''));
+
+                return strcasecmp($candidateSalesId, $salesId) === 0;
+            });
+        }
+
+        $installmentsQuery = $customer->repaymentSchedules()
+            ->where('entry_type', RepaymentSchedule::ENTRY_INSTALLMENT)
+            ->orderBy('installment_number')
+            ->orderBy('due_date');
+
+        if ($salesId !== '') {
+            $installmentsQuery->where('sales_identifier', $salesId);
+        } elseif ($customerAssetId) {
+            $installmentsQuery->where('customer_asset_id', $customerAssetId);
+        }
+
+        return [
+            'asset' => $asset,
+            'sales_identifier' => $salesId !== '' ? $salesId : null,
+            'plan_name' => $planName,
+            'repayment_meta' => $asset?->repaymentStatusMeta() ?? ['label' => 'Active', 'color' => 'info'],
+            'installments' => $installmentsQuery->paginate($perPage, ['*'], $this->schedulePageName($groupKey)),
+        ];
+    }
+
+    protected function scheduleGroupKey(?string $salesIdentifier, ?int $customerAssetId): string
+    {
+        $salesId = trim((string) ($salesIdentifier ?? ''));
+
+        if ($salesId !== '') {
+            return 'sale:'.$salesId;
+        }
+
+        return 'asset:'.(string) ($customerAssetId ?? 'general');
+    }
+
+    protected function schedulePageName(string $groupKey): string
+    {
+        $slug = preg_replace('/[^a-z0-9_]+/', '_', strtolower($groupKey));
+        $slug = trim((string) $slug, '_');
+
+        return 'schedule_'.$slug;
+    }
+
+    /**
+     * @return array{total_amount: float, total_count: int, last_payment_at: ?\Illuminate\Support\Carbon, total_days_credited: int}
+     */
+    protected function buildPaymentSummary(Customer $customer): array
+    {
+        $query = $this->filteredPaymentsQuery($customer);
+        $totalCount = (clone $query)->count();
+        $totalAmount = (float) (clone $query)->sum('amount');
+        $lastPaidAt = (clone $query)->max('paid_at');
+
+        return [
+            'total_amount' => $totalAmount,
+            'total_count' => $totalCount,
+            'last_payment_at' => $lastPaidAt ? \Illuminate\Support\Carbon::parse($lastPaidAt) : null,
+            'total_days_credited' => (int) (clone $query)->sum('days_credited'),
+        ];
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany<\App\Models\CustomerPayment>
+     */
+    protected function filteredPaymentsQuery(Customer $customer)
+    {
+        $query = $customer->payments();
+
+        if ($this->paymentAssetFilter === '') {
+            return $query;
+        }
+
+        $asset = $customer->assets()->find((int) $this->paymentAssetFilter);
+
+        if (! $asset) {
+            return $query;
+        }
+
+        $meta = is_array($asset->meta) ? $asset->meta : [];
+        $serial = trim((string) $asset->unit_serial);
+        $salesId = trim((string) ($meta['paygro_sales_identifier'] ?? ''));
+
+        if ($serial === '' && $salesId === '') {
+            return $query->whereRaw('0 = 1');
+        }
+
+        return $query->where(function ($builder) use ($serial, $salesId) {
+            if ($salesId !== '') {
+                $builder->orWhere('meta->sales_identifier', $salesId);
+            }
+
+            if ($serial !== '') {
+                $builder->orWhere('meta->product_serial_number', $serial);
+            }
+        });
     }
 }

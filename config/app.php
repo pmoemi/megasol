@@ -123,4 +123,28 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Web UI migrations
+    |--------------------------------------------------------------------------
+    |
+    | Allow administrators to run `php artisan migrate` from Settings → System.
+    | Disable on servers where shell/CI should be the only migration path.
+    |
+    */
+
+    'allow_web_migrations' => (bool) env('ALLOW_WEB_MIGRATIONS', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Web UI cache management
+    |--------------------------------------------------------------------------
+    |
+    | Allow administrators to clear Laravel caches from Settings → System.
+    | Useful after uploading Blade or config changes on cPanel without SSH.
+    |
+    */
+
+    'allow_web_cache_clear' => (bool) env('ALLOW_WEB_CACHE_CLEAR', true),
+
 ];

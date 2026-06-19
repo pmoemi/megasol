@@ -103,11 +103,11 @@ window.addEventListener('keydown', function(e) {
                             </div>
                         </div>
                         <div class="flex items-center justify-between">
-                            <span class="text-sm text-ink">Add customer</span>
+                            <span class="text-sm text-ink">PayGro sync</span>
                             <div class="flex items-center gap-1">
                                 <kbd class="inline-flex items-center px-2 py-0.5 rounded-md border border-border bg-surface text-[11px] font-medium text-muted font-mono">G</kbd>
                                 <span class="text-muted text-xs">then</span>
-                                <kbd class="inline-flex items-center px-2 py-0.5 rounded-md border border-border bg-surface text-[11px] font-medium text-muted font-mono">N</kbd>
+                                <kbd class="inline-flex items-center px-2 py-0.5 rounded-md border border-border bg-surface text-[11px] font-medium text-muted font-mono">P</kbd>
                             </div>
                         </div>
                     </div>

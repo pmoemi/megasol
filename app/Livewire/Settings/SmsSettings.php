@@ -82,7 +82,7 @@ class SmsSettings extends Component
 
         // Only overwrite the stored API key when a new one was entered.
         if ($this->at_api_key !== '') {
-            Setting::set(SmsConfigurator::KEY_API_KEY, $this->at_api_key);
+            Setting::set(SmsConfigurator::KEY_API_KEY, trim($this->at_api_key));
             $this->at_api_key = '';
             $this->apiKeyIsSet = true;
         }
@@ -117,7 +117,13 @@ class SmsSettings extends Component
 
             $this->flashStatus("Test SMS sent to {$this->test_phone}.", false);
         } catch (\Throwable $e) {
-            $this->flashStatus('Failed to send test SMS: '.$e->getMessage(), true);
+            $message = $e->getMessage();
+            if (str_contains($message, '401') || str_contains($message, 'authentication is invalid')) {
+                $message = 'Africa\'s Talking rejected the username or API key (401). '
+                    .'Copy a fresh API key from your app dashboard at account.africastalking.com '
+                    .'for username "'.config('africastalking.username').'" and save it here.';
+            }
+            $this->flashStatus('Failed to send test SMS: '.$message, true);
         }
     }
 

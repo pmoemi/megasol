@@ -18,6 +18,8 @@ class CustomerPayment extends Model
         'days_credited',
         'notes',
         'paid_at',
+        'source',
+        'meta',
     ];
 
     protected function casts(): array
@@ -27,6 +29,7 @@ class CustomerPayment extends Model
             'tokens_credited' => 'integer',
             'days_credited' => 'integer',
             'paid_at' => 'datetime',
+            'meta' => 'array',
         ];
     }
 

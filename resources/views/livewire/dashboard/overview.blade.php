@@ -16,10 +16,10 @@
                 <p class="text-xs text-muted mt-0.5">Here's what's happening with your customers today.</p>
             </div>
             <div class="flex gap-1.5 flex-wrap">
-                <a href="{{ route('customers.create') }}" wire:navigate
+                <a href="{{ route('settings.paygro') }}" wire:navigate
                    class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-brand text-white shadow-sm hover:bg-brand-strong transition-colors">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                    Add Customer
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                    PayGro Sync
                 </a>
                 <a href="{{ route('campaigns.create') }}" wire:navigate
                    class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg border border-border bg-surface-2 text-ink/80 hover:bg-surface hover:border-brand/30 transition-colors">
@@ -132,9 +132,8 @@
             <div class="space-y-2">
                 @php
                 $actions = [
-                    ['href' => route('customers.create'),  'label' => 'Add Customer',      'icon' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>',  'color' => 'bg-info/15 text-info'],
+                    ['href' => route('settings.paygro'),  'label' => 'PayGro Sync',        'icon' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>', 'color' => 'bg-info/15 text-info'],
                     ['href' => route('campaigns.create'),  'label' => 'New Campaign',       'icon' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>', 'color' => 'bg-brand/15 text-brand'],
-                    ['href' => route('customers.import'),  'label' => 'Import Customers',  'icon' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>',  'color' => 'bg-success/15 text-success'],
                     ['href' => route('workflows.create'),  'label' => 'New Workflow',       'icon' => '<polyline stroke-linecap="round" stroke-linejoin="round" stroke-width="2" points="16 18 22 12 16 6"/><polyline stroke-linecap="round" stroke-linejoin="round" stroke-width="2" points="8 6 2 12 8 18"/>',  'color' => 'bg-warning/15 text-warning'],
                     ['href' => route('analytics'),         'label' => 'View Analytics',    'icon' => '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 14l4-4 3 3 5-6"/>', 'color' => 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'],
                 ];
@@ -205,10 +204,9 @@
                         <svg class="w-6 h-6 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     </div>
                     <p class="text-sm font-medium text-ink">No customers yet</p>
-                    <p class="text-xs text-muted mt-1">Add your first customer to get started.</p>
-                    <a href="{{ route('customers.create') }}" wire:navigate class="inline-flex items-center gap-2 mt-3 px-4 py-2 text-sm font-medium btn-primary">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        Add Customer
+                    <p class="text-xs text-muted mt-1">Run PayGro sync to import customers.</p>
+                    <a href="{{ route('settings.paygro') }}" wire:navigate class="inline-flex items-center gap-2 mt-3 px-4 py-2 text-sm font-medium btn-primary">
+                        PayGro Sync
                     </a>
                 </div>
                 @endforelse

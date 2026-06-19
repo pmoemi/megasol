@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Integrations\PayGroService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -103,16 +104,59 @@ class Customer extends Model
     }
 
     /**
-     * Days the account is past its next payment due date. 0 if not overdue
-     * or no due date is set.
+     * Days past due when the customer has no token credit remaining.
+     * Hire Purchase: days beyond the plan grace period or past next due date.
+     * Daily PAYGO: days since the last recorded payment.
      */
     public function getDaysInArrearsAttribute(): int
     {
-        if (! $this->next_payment_date || $this->next_payment_date->isFuture()) {
+        if ($this->token_balance > 0) {
             return 0;
         }
 
-        return (int) $this->next_payment_date->startOfDay()->diffInDays(now()->startOfDay());
+        $computed = app(PayGroService::class)->computeDaysInArrears(
+            $this->relationLoaded('assets') ? $this : $this->load('assets')
+        );
+
+        if ($computed > 0) {
+            return $computed;
+        }
+
+        if ($this->isHirePurchaseAccount() && $this->next_payment_date?->isPast()) {
+            return (int) $this->next_payment_date->startOfDay()->diffInDays(now()->startOfDay());
+        }
+
+        return 0;
+    }
+
+    /**
+     * Whether this customer is on a Hire Purchase plan (installment/arrears model).
+     */
+    public function isHirePurchaseAccount(): bool
+    {
+        $meta = is_array($this->meta) ? $this->meta : [];
+
+        if (array_key_exists('paygro_has_hire_purchase', $meta)) {
+            return (bool) $meta['paygro_has_hire_purchase'];
+        }
+
+        foreach ($this->assets as $asset) {
+            $assetMeta = is_array($asset->meta) ? $asset->meta : [];
+            $creditType = strtolower((string) (
+                $assetMeta['paygro_payment_credit_type']
+                ?? $assetMeta['paygro_plan_credit_type']
+                ?? ''
+            ));
+
+            if (
+                str_contains($creditType, 'hire purchase')
+                || str_contains($creditType, 'higher purchase')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

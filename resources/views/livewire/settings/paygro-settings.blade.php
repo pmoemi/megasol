@@ -153,7 +153,7 @@
                 @if(!$connection['first_sync_completed'])
                     Select the date range for your first import from PayGro.
                 @else
-                    Pull customer updates for a date range. Scheduled syncs use the default range below.
+                    Pull customer updates, unit serials, and payment history for a date range. Payments appear on each customer profile under the <strong>Payments</strong> tab. Scheduled syncs use the default range below.
                 @endif
             </p>
         </div>
@@ -211,6 +211,30 @@
         </form>
     </div>
 
+    {{-- Reset & fresh sync (recovery) --}}
+    <div class="bg-surface-2 rounded-2xl border border-danger/30 overflow-hidden">
+        <div class="px-6 py-4 border-b border-border">
+            <h2 class="text-base font-semibold text-ink">Reset &amp; fresh sync</h2>
+            <p class="text-xs text-muted mt-0.5">
+                Stuck or incomplete data (e.g. payments that never imported)? This clears all PayGro-synced
+                <strong>assets, payments, repayment schedules, and token history</strong>, then re-pulls everything
+                from scratch over a wide date range. Customer accounts, agent assignments, and SMS history are kept.
+                The fresh sync runs in the background — track it in the logs below.
+            </p>
+        </div>
+        <div class="p-6">
+            <button type="button"
+                    wire:click="resetAndResync"
+                    wire:confirm="This deletes all synced PayGro assets, payments, and schedules, then re-syncs from scratch in the background. Customer accounts are kept. Continue?"
+                    wire:loading.attr="disabled"
+                    class="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-danger rounded-xl hover:bg-danger/90 transition-colors disabled:opacity-60">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                <span wire:loading.remove wire:target="resetAndResync">Reset &amp; run fresh sync</span>
+                <span wire:loading wire:target="resetAndResync">Resetting…</span>
+            </button>
+        </div>
+    </div>
+
     @if($recentSyncs->isNotEmpty())
     <div class="bg-surface-2 rounded-2xl border border-border overflow-hidden">
         <div class="px-6 py-4 border-b border-border">
@@ -222,6 +246,7 @@
                 <thead>
                     <tr class="bg-surface border-b border-border">
                         <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Date</th>
+                        <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Type</th>
                         <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Status</th>
                         <th class="text-left text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Source</th>
                         <th class="text-right text-xs font-semibold text-muted uppercase tracking-wider px-4 py-3">Processed</th>
@@ -235,6 +260,11 @@
                     <tr class="hover:bg-surface transition-colors">
                         <td class="px-4 py-3 text-sm text-ink/80 whitespace-nowrap">
                             {{ $log->started_at?->format('M j, Y H:i') ?? $log->created_at->format('M j, Y H:i') }}
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-surface text-muted capitalize">
+                                {{ str_replace('_', ' ', $log->sync_type ?? 'sync') }}
+                            </span>
                         </td>
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-1.5">
@@ -259,6 +289,15 @@
                         <td class="px-4 py-3 text-xs text-muted hidden lg:table-cell max-w-xs">
                             @if($log->error_message)
                             <span class="text-danger">{{ Str::limit($log->error_message, 80) }}</span>
+                            @elseif($log->sync_type === 'repayment_schedules' && is_array($log->payload))
+                            {{ number_format($log->payload['allocation_rows'] ?? 0) }} units,
+                            {{ number_format($log->payload['customers_updated'] ?? 0) }} customers updated
+                            @elseif($log->sync_type === 'payments' && is_array($log->payload))
+                            {{ number_format($log->payload['report_rows'] ?? 0) }} rows,
+                            {{ number_format($log->payload['skipped_unmatched'] ?? 0) }} skipped
+                            @if(! empty($log->payload['start_date']))
+                            · {{ $log->payload['start_date'] }}–{{ $log->payload['end_date'] ?? '?' }}
+                            @endif
                             @elseif($log->payload['fetch_source'] ?? null)
                             via {{ $log->payload['fetch_source'] }}
                             @else —

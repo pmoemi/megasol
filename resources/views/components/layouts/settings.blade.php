@@ -24,6 +24,14 @@
                         ['label' => 'Security', 'href' => route('settings.security'), 'icon' => '<rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0110 0v4"></path>'],
                         ['label' => 'Notifications', 'href' => route('settings.notifications'), 'icon' => '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path>'],
                     ];
+
+                    if (auth()->user()?->hasRole('Admin') || auth()->user()?->can('manage settings')) {
+                        $settingsNav[] = [
+                            'label' => 'System',
+                            'href' => route('settings.system'),
+                            'icon' => '<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>',
+                        ];
+                    }
                     @endphp
 
                     @foreach($settingsNav as $item)

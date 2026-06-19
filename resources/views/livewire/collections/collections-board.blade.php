@@ -59,7 +59,13 @@
                         </td>
                         <td class="px-4 py-3 text-sm text-muted hidden sm:table-cell">{{ $customer->phone ?? '—' }}</td>
                         <td class="px-4 py-3 text-sm font-semibold text-ink text-right whitespace-nowrap">KES {{ number_format((float) $customer->outstanding_balance, 2) }}</td>
-                        <td class="px-4 py-3 text-sm text-right hidden md:table-cell {{ $customer->days_in_arrears > 0 ? 'text-danger' : 'text-muted' }}">{{ $customer->days_in_arrears }} days</td>
+                        <td class="px-4 py-3 text-sm text-right hidden md:table-cell {{ $customer->days_in_arrears > 0 ? 'text-danger' : 'text-muted' }}">
+                            @if($customer->days_in_arrears > 0)
+                                {{ $customer->days_in_arrears }} days
+                            @else
+                                —
+                            @endif
+                        </td>
                         <td class="px-4 py-3 text-right">
                             <button type="button" wire:click="openAssign({{ $customer->id }})" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-brand bg-brand/5 rounded-lg hover:bg-brand/10 transition-colors">Assign</button>
                         </td>

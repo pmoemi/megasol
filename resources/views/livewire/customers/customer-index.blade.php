@@ -2,7 +2,7 @@
 
     {{-- ═══════════════════════════════════════════════
          TOP BAR  — title left, all controls right
-         Matches reference exactly: Search | Status▼ | Groups▼ | Import | Export | + Add Customer
+         Matches reference: Search | Status▼ | Groups▼ | Export
          ═══════════════════════════════════════════════ --}}
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 
@@ -55,6 +55,32 @@
                         @else
                         <span class="w-3.5 h-3.5 shrink-0"></span>
                         @endif
+                        {{ $label }}
+                    </button>
+                    @endforeach
+                </div>
+            </div>
+
+            {{-- Account Status dropdown --}}
+            <div class="relative" x-data="{ open: false }" @keydown.escape.window="open = false" @click.outside="open = false">
+                <button type="button" @click="open = !open"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium bg-surface-2 border border-border rounded-xl hover:bg-surface hover:border-brand/30 transition-colors whitespace-nowrap"
+                        :class="open ? 'border-brand/40 bg-surface' : ''"
+                        aria-haspopup="listbox" :aria-expanded="open">
+                    <svg class="w-3.5 h-3.5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span class="text-ink">
+                        @if($accountStatusFilter === '')
+                            All Accounts
+                        @else
+                            {{ str_replace('_', ' ', ucfirst($accountStatusFilter)) }}
+                        @endif
+                    </span>
+                    <svg class="w-3.5 h-3.5 text-muted transition-transform duration-150" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div x-show="open" x-transition class="absolute left-0 top-full mt-1.5 z-50 w-44 bg-surface-2 border border-border rounded-xl shadow-lg py-1 origin-top-left" style="display:none;">
+                    @foreach(['' => 'All Accounts', 'active' => 'Active', 'paid_off' => 'Fully Paid', 'defaulting' => 'Defaulting'] as $val => $label)
+                    <button type="button" @click="$wire.set('accountStatusFilter', '{{ $val }}'); open = false" role="option"
+                            class="flex items-center gap-2.5 w-full text-left px-4 py-2 text-sm transition-colors hover:bg-surface {{ $accountStatusFilter === $val ? 'font-semibold text-brand bg-brand/5' : 'text-ink/80' }}">
                         {{ $label }}
                     </button>
                     @endforeach
@@ -124,13 +150,6 @@
                 Segments
             </a>
 
-            {{-- Import --}}
-            <a href="{{ route('customers.import') }}" wire:navigate
-               class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface-2 border border-border rounded-xl hover:bg-surface hover:border-brand/30 transition-colors whitespace-nowrap">
-                <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                Import
-            </a>
-
             {{-- Export --}}
             <button type="button" wire:click="export" wire:loading.attr="disabled"
                     class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface-2 border border-border rounded-xl hover:bg-surface hover:border-brand/30 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
@@ -138,13 +157,6 @@
                 <svg class="w-4 h-4 text-muted animate-spin" wire:loading wire:target="export" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                 Export
             </button>
-
-            {{-- Add Customer --}}
-            <a href="{{ route('customers.create') }}" wire:navigate
-               class="btn-primary inline-flex items-center gap-2 text-sm font-semibold whitespace-nowrap">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                Add Customer
-            </a>
         </div>
     </div>
 
@@ -277,9 +289,15 @@
                         <td class="px-4 py-3 text-sm text-muted hidden sm:table-cell whitespace-nowrap">{{ $customer->phone ?? '—' }}</td>
                         <td class="px-4 py-3 text-sm text-muted hidden md:table-cell font-mono">{{ $customer->account_number ?? '—' }}</td>
                         <td class="px-4 py-3">
+                            @php $acct = $customer->accountStatusMeta(); $acctColors = ['success' => 'bg-success/15 text-success','danger' => 'bg-danger/15 text-danger','muted' => 'bg-surface text-muted','info' => 'bg-info/15 text-info']; @endphp
+                            <div class="flex flex-wrap gap-1.5">
+                            <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap {{ $acctColors[$acct['color']] ?? 'bg-surface text-muted' }}">
+                                {{ $acct['label'] }}
+                            </span>
                             <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap {{ $statusColors[$customer->payment_status] ?? 'bg-surface text-muted' }}">
                                 {{ str_replace('_', ' ', ucfirst($customer->payment_status ?? '—')) }}
                             </span>
+                            </div>
                         </td>
                         <td class="px-4 py-3 text-sm text-ink font-medium hidden lg:table-cell whitespace-nowrap">
                             {{ $customer->outstanding_balance !== null ? number_format($customer->outstanding_balance, 2) : '—' }}
@@ -312,11 +330,6 @@
                                            class="flex items-center gap-2 w-full px-4 py-2 text-sm text-ink/80 hover:bg-surface">
                                             <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                             View Profile
-                                        </a>
-                                        <a href="{{ route('customers.edit', $customer) }}" wire:navigate role="menuitem" @click="open = false"
-                                           class="flex items-center gap-2 w-full px-4 py-2 text-sm text-ink/80 hover:bg-surface">
-                                            <svg class="w-4 h-4 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                                            Edit
                                         </a>
                                         <button type="button" role="menuitem"
                                                 wire:click="deleteCustomer({{ $customer->id }})"
@@ -368,21 +381,21 @@
             </div>
         </div>
 
-        @if($search || $paymentStatusFilter || $lifecycleFilter || $selectedGroup)
+        @if($search || $paymentStatusFilter || $accountStatusFilter || $lifecycleFilter || $selectedGroup)
             <h3 class="text-lg font-bold text-ink mb-1">No customers found</h3>
             <p class="text-sm text-muted mb-5 max-w-xs">No customers match your current filters. Try adjusting your search or filter criteria.</p>
             <button type="button"
-                    wire:click="$set('search', ''); $set('paymentStatusFilter', ''); $set('lifecycleFilter', ''); $set('selectedGroup', '')"
+                    wire:click="$set('search', ''); $set('paymentStatusFilter', ''); $set('accountStatusFilter', ''); $set('lifecycleFilter', ''); $set('selectedGroup', '')"
                     class="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-brand border border-brand/30 rounded-xl hover:bg-brand/5 transition-colors">
                 Clear all filters
             </button>
         @else
             <h3 class="text-lg font-bold text-ink mb-1">No customers yet</h3>
-            <p class="text-sm text-muted mb-5 max-w-xs">Add your first customer to start building your customer database.</p>
-            <a href="{{ route('customers.create') }}" wire:navigate
+            <p class="text-sm text-muted mb-5 max-w-xs">Customers are imported from PayGro. Connect and run sync in Settings.</p>
+            <a href="{{ route('settings.paygro') }}" wire:navigate
                class="btn-primary inline-flex items-center gap-2 text-sm font-semibold px-6 py-2.5">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                Add Your First Customer
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                PayGro Sync
             </a>
         @endif
     </div>

@@ -273,7 +273,7 @@
                                 <div>
                                     <p class="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted">Customers</p>
                                     <template x-for="c in results" :key="c.id">
-                                        <a :href="'/customers/' + c.id + '/edit'" class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-colors">
+                                        <a :href="'/customers/' + c.id" class="flex items-center gap-3 px-4 py-2.5 hover:bg-surface transition-colors">
                                             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand text-xs font-bold" x-text="(c.first_name || c.name || '?')[0].toUpperCase()"></span>
                                             <div class="min-w-0">
                                                 <p class="text-sm font-semibold text-ink truncate" x-text="c.first_name + ' ' + (c.last_name || '')"></p>
@@ -509,10 +509,9 @@
             <h3 class="text-xs font-bold text-muted uppercase tracking-wider mb-3">Quick Links</h3>
             <ul class="space-y-1">
                 @foreach([
-                    ['label' => 'Add New Customer', 'href' => '/customers/create', 'icon' => 'M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z'],
+                    ['label' => 'PayGro Sync', 'href' => '/settings/paygro', 'icon' => 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15'],
                     ['label' => 'Create Campaign', 'href' => '/campaigns/create', 'icon' => 'M12 19l9 2-9-18-9 18 9-2zm0 0v-8'],
                     ['label' => 'New Workflow', 'href' => '/workflows/create?guided=1', 'icon' => 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z'],
-                    ['label' => 'Import Customers', 'href' => '/customers/import', 'icon' => 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12'],
                     ['label' => 'SMS Templates', 'href' => '/templates', 'icon' => 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z'],
                     ['label' => 'Email Templates', 'href' => '/email-templates', 'icon' => 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z'],
                     ['label' => 'View Analytics', 'href' => '/analytics', 'icon' => 'M3 3v18h18M7 14l4-4 3 3 5-6'],

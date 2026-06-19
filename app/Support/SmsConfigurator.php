@@ -53,7 +53,7 @@ class SmsConfigurator
         }
 
         if (! empty($values[self::KEY_API_KEY])) {
-            config(['africastalking.api_key' => $values[self::KEY_API_KEY]]);
+            config(['africastalking.api_key' => trim((string) $values[self::KEY_API_KEY])]);
         }
 
         if (array_key_exists(self::KEY_SENDER_ID, $values->all())) {

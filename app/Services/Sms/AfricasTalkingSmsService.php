@@ -27,7 +27,45 @@ class AfricasTalkingSmsService
 
         $cacheKey = $username.'|'.$apiKey;
 
-        return $this->clients[$cacheKey] ??= new AfricasTalking($username, $apiKey);
+        if (! isset($this->clients[$cacheKey])) {
+            $client = new AfricasTalking($username, $apiKey);
+            $this->disableSslVerificationForLocalDev($client);
+            $this->clients[$cacheKey] = $client;
+        }
+
+        return $this->clients[$cacheKey];
+    }
+
+    protected function disableSslVerificationForLocalDev(AfricasTalking $client): void
+    {
+        if (! app()->environment(['local', 'development']) && ! config('app.debug')) {
+            return;
+        }
+
+        try {
+            $reflection = new \ReflectionClass($client);
+
+            foreach (['client', 'contentClient'] as $propertyName) {
+                if (! $reflection->hasProperty($propertyName)) {
+                    continue;
+                }
+
+                $property = $reflection->getProperty($propertyName);
+                $property->setAccessible(true);
+                $httpClient = $property->getValue($client);
+
+                if (! $httpClient instanceof \GuzzleHttp\Client) {
+                    continue;
+                }
+
+                $config = array_merge($httpClient->getConfig(), ['verify' => false]);
+                $property->setValue($client, new \GuzzleHttp\Client($config));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Africa\'s Talking: could not disable SSL verification for local dev', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

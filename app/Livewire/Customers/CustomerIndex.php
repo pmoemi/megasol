@@ -31,6 +31,9 @@ class CustomerIndex extends Component
     public string $paymentStatusFilter = '';
 
     #[Url]
+    public string $accountStatusFilter = '';
+
+    #[Url]
     public string $lifecycleFilter = '';
 
     #[Url]
@@ -53,6 +56,11 @@ class CustomerIndex extends Component
     }
 
     public function updatingPaymentStatusFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingAccountStatusFilter(): void
     {
         $this->resetPage();
     }
@@ -188,6 +196,7 @@ class CustomerIndex extends Component
                 });
             })
             ->when($this->paymentStatusFilter, fn ($q) => $q->where('payment_status', $this->paymentStatusFilter))
+            ->when($this->accountStatusFilter, fn ($q) => $q->where('account_status', $this->accountStatusFilter))
             ->when($this->lifecycleFilter, fn ($q) => $q->where('lifecycle_stage', $this->lifecycleFilter))
             ->when($this->selectedGroup, fn ($q) => $q->whereHas('customerLists', fn ($q2) => $q2->where('customer_lists.id', $this->selectedGroup)));
     }

@@ -6,8 +6,6 @@ use App\Livewire\Analytics\ReportDashboard;
 use App\Livewire\Campaigns\CampaignEditor;
 use App\Livewire\Campaigns\CampaignList;
 use App\Livewire\Campaigns\CampaignReport;
-use App\Livewire\Customers\CustomerForm;
-use App\Livewire\Customers\CustomerImport;
 use App\Livewire\Customers\CustomerIndex;
 use App\Livewire\Customers\CustomerListManager;
 use App\Livewire\Dashboard\Overview;
@@ -25,6 +23,7 @@ use App\Livewire\Settings\SecuritySettings;
 use App\Livewire\Customers\CustomerProfile;
 use App\Livewire\Customers\SegmentManager;
 use App\Livewire\Settings\SmsSettings;
+use App\Livewire\Settings\SystemSettings;
 use App\Livewire\Staff\StaffManager;
 use App\Livewire\Templates\TemplateEditor;
 use App\Livewire\Templates\TemplateList;
@@ -54,9 +53,6 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/', CustomerIndex::class)->name('index');
         Route::get('/groups', CustomerListManager::class)->name('groups');
         Route::get('/segments', SegmentManager::class)->name('segments');
-        Route::get('/create', CustomerForm::class)->name('create');
-        Route::get('/import', CustomerImport::class)->name('import');
-        Route::get('/{customer}/edit', CustomerForm::class)->name('edit');
         // Customer 360 profile — keep last so literal segments above win.
         Route::get('/{customer}', CustomerProfile::class)->name('show');
     });
@@ -109,5 +105,6 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/profile', ProfileSettings::class)->name('profile');
         Route::get('/security', SecuritySettings::class)->name('security');
         Route::get('/notifications', NotificationSettings::class)->name('notifications');
+        Route::get('/system', SystemSettings::class)->name('system');
     });
 });

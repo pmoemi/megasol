@@ -23,4 +23,9 @@ class Setting extends Model
             ['value' => $value],
         );
     }
+
+    public static function forget(string $key): void
+    {
+        static::query()->where('key', $key)->delete();
+    }
 }
