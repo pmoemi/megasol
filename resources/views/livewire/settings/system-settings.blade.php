@@ -13,16 +13,105 @@
         <p class="text-sm text-muted mt-1">Database maintenance, cache tools, and server cron jobs for production when shell access is unavailable.</p>
     </div>
 
-    <div class="bg-surface-2 rounded-2xl border border-border overflow-hidden" x-data="{ copied: null }">
-        <div class="px-6 py-4 border-b border-border">
-            <h2 class="text-base font-semibold text-ink">Cron jobs (cPanel)</h2>
-            <p class="text-xs text-muted mt-0.5">
-                Copy these into cPanel → <strong class="font-medium text-ink/80">Cron Jobs</strong> on
-                <a href="{{ $appUrl }}" target="_blank" rel="noopener" class="text-brand hover:underline">{{ $appUrl ?: 'your server' }}</a>.
-            </p>
+    <div class="bg-surface-2 rounded-2xl border border-border overflow-hidden" x-data="{ copied: null }" wire:poll.60s="refreshCronHealth">
+        <div class="px-6 py-4 border-b border-border flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="text-base font-semibold text-ink">Cron jobs (cPanel)</h2>
+                <p class="text-xs text-muted mt-0.5">
+                    Copy into cPanel → <strong class="font-medium text-ink/80">Cron Jobs</strong> → <strong class="font-medium text-ink/80">Once Per Minute</strong>, then paste the command below.
+                    Each subdomain needs its own cron — do not reuse another app’s path (e.g. CRM vs MegaSol).
+                </p>
+            </div>
+            @php
+                $cronState = $cronHealth['state'] ?? 'unknown';
+                $cronBadge = match ($cronState) {
+                    'ok' => ['label' => 'Cron running', 'class' => 'bg-success/15 text-success'],
+                    'warning' => ['label' => 'Cron delayed', 'class' => 'bg-warning/15 text-warning'],
+                    'error' => ['label' => 'Cron not detected', 'class' => 'bg-danger/15 text-danger'],
+                    default => ['label' => 'Awaiting first run', 'class' => 'bg-surface text-muted'],
+                };
+            @endphp
+            <span class="text-xs px-2.5 py-1 rounded-full font-medium {{ $cronBadge['class'] }}">
+                {{ $cronBadge['label'] }}
+            </span>
         </div>
 
         <div class="p-6 space-y-5">
+            <div class="rounded-xl border border-border bg-surface/40 p-4 space-y-4">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-semibold text-ink">Scheduler health</p>
+                        <p class="text-xs text-muted mt-0.5">{{ $cronHealth['message'] ?? 'Checking scheduler status…' }}</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button"
+                                wire:click="refreshCronHealth"
+                                wire:loading.attr="disabled"
+                                wire:target="refreshCronHealth,runSchedulerNow"
+                                class="inline-flex items-center px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface border border-border rounded-xl hover:bg-surface-2 transition-colors">
+                            <span wire:loading.remove wire:target="refreshCronHealth">Refresh</span>
+                            <span wire:loading wire:target="refreshCronHealth">Refreshing…</span>
+                        </button>
+                        <button type="button"
+                                wire:click="runSchedulerNow"
+                                wire:loading.attr="disabled"
+                                wire:target="refreshCronHealth,runSchedulerNow"
+                                class="inline-flex items-center px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface border border-border rounded-xl hover:bg-surface-2 transition-colors">
+                            <span wire:loading.remove wire:target="runSchedulerNow">Run scheduler now</span>
+                            <span wire:loading wire:target="runSchedulerNow">Running…</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="rounded-xl border border-border bg-surface px-4 py-3">
+                        <p class="text-xs text-muted uppercase tracking-wide">Last scheduler tick</p>
+                        <p class="text-sm font-semibold text-ink mt-1">{{ $cronHealth['last_run_human'] ?? 'Never' }}</p>
+                        @if(! empty($cronHealth['last_run_at']))
+                        <p class="text-xs font-mono text-muted mt-1">{{ $cronHealth['last_run_at'] }}</p>
+                        @endif
+                    </div>
+                    <div class="rounded-xl border border-border bg-surface px-4 py-3">
+                        <p class="text-xs text-muted uppercase tracking-wide">Expected cadence</p>
+                        <p class="text-sm font-semibold text-ink mt-1">Every minute via cPanel cron</p>
+                        <p class="text-xs text-muted mt-1">Healthy when the last tick was within {{ $cronHealth['heartbeat_ok_minutes'] ?? 3 }} minutes.</p>
+                    </div>
+                </div>
+
+                @if(! empty($cronHealth['tasks']))
+                <div>
+                    <p class="text-sm font-medium text-ink mb-2">Scheduled task activity</p>
+                    <ul class="rounded-xl border border-border divide-y divide-border/60">
+                        @foreach($cronHealth['tasks'] as $task)
+                        @php
+                            $taskState = $task['state'] ?? 'unknown';
+                            $taskBadge = match ($taskState) {
+                                'ok' => 'bg-success/15 text-success',
+                                'warning' => 'bg-warning/15 text-warning',
+                                default => 'bg-surface text-muted',
+                            };
+                        @endphp
+                        <li class="px-4 py-3 space-y-1">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <p class="text-sm font-medium text-ink">{{ $task['label'] }}</p>
+                                    <code class="text-xs font-mono text-muted">{{ $task['command'] }}</code>
+                                </div>
+                                <span class="text-[10px] px-2 py-0.5 rounded-full font-medium {{ $taskBadge }}">
+                                    {{ ucfirst($taskState) }}
+                                </span>
+                            </div>
+                            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                                <span>{{ $task['message'] ?? '' }}</span>
+                                <span>{{ $task['frequency'] ?? '' }}</span>
+                            </div>
+                        </li>
+                        @endforeach
+                    </ul>
+                </div>
+                @endif
+            </div>
+
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="rounded-xl border border-border bg-surface/40 px-4 py-3">
                     <p class="text-xs text-muted uppercase tracking-wide">App URL</p>
@@ -52,18 +141,31 @@
                         <span class="text-xs font-mono text-muted">{{ $job['schedule'] }}</span>
                     </div>
                     <p class="text-xs text-muted">{{ $job['description'] }}</p>
-                    <div class="flex flex-col sm:flex-row gap-2">
-                        <input type="text"
-                               readonly
-                               value="{{ $job['command'] }}"
-                               class="input flex-1 font-mono text-xs text-ink/80 bg-surface"
-                               onclick="this.select()">
-                        <button type="button"
-                                @click="navigator.clipboard.writeText(@js($job['command'])); copied = {{ $index }}; setTimeout(() => copied = null, 2000)"
-                                class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface border border-border rounded-xl hover:bg-surface-2 transition-colors shrink-0">
-                            <span x-show="copied !== {{ $index }}">Copy</span>
-                            <span x-show="copied === {{ $index }}" x-cloak class="text-success">Copied!</span>
-                        </button>
+                    <div class="space-y-2">
+                        <div>
+                            <p class="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">cPanel command (paste this)</p>
+                            <div class="flex flex-col sm:flex-row gap-2">
+                                <input type="text"
+                                       readonly
+                                       value="{{ $job['shell_command'] }}"
+                                       class="input flex-1 font-mono text-xs text-ink/80 bg-surface"
+                                       onclick="this.select()">
+                                <button type="button"
+                                        @click="navigator.clipboard.writeText(@js($job['shell_command'])); copied = {{ $index }}; setTimeout(() => copied = null, 2000)"
+                                        class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface border border-border rounded-xl hover:bg-surface-2 transition-colors shrink-0">
+                                    <span x-show="copied !== {{ $index }}">Copy</span>
+                                    <span x-show="copied === {{ $index }}" x-cloak class="text-success">Copied!</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-semibold text-muted uppercase tracking-wider mb-1">Full cron line (includes schedule)</p>
+                            <input type="text"
+                                   readonly
+                                   value="{{ $job['command'] }}"
+                                   class="input w-full font-mono text-xs text-ink/60 bg-surface"
+                                   onclick="this.select()">
+                        </div>
                     </div>
                 </div>
                 @endforeach

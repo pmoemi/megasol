@@ -110,6 +110,10 @@ class Customer extends Model
      */
     public function getDaysInArrearsAttribute(): int
     {
+        if ($this->isFullyPaidOff()) {
+            return 0;
+        }
+
         if ($this->token_balance > 0) {
             return 0;
         }
@@ -127,6 +131,21 @@ class Customer extends Model
         }
 
         return 0;
+    }
+
+    public function isFullyPaidOff(): bool
+    {
+        if ($this->payment_status === 'paid_off') {
+            return true;
+        }
+
+        $this->loadMissing('assets');
+
+        if ($this->assets->isNotEmpty()) {
+            return $this->assets->every(fn (CustomerAsset $asset) => $asset->isPaidOff());
+        }
+
+        return (float) ($this->outstanding_balance ?? 0) <= 0.01;
     }
 
     /**

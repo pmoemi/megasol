@@ -105,11 +105,19 @@ class DatabaseSeeder extends Seeder
             ],
         ];
 
+        // Every type gets a reusable SMS template (promotional ones are picked
+        // when composing a Campaign). Only the genuinely triggered types become
+        // scheduled automations — promotional blasts must go through Campaigns,
+        // not the unattended hourly runner.
         foreach ($templateTypes as $type => $data) {
             $template = MessageTemplate::updateOrCreate(
                 ['type' => $type, 'name' => $data['name']],
                 ['body' => $data['body'], 'channel' => 'sms', 'is_active' => true],
             );
+
+            if (! in_array($type, \App\Services\Automation\AutomationRunner::SCHEDULED_TYPES, true)) {
+                continue;
+            }
 
             Automation::updateOrCreate(
                 ['type' => $type, 'name' => $data['name'].' Automation'],

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Livewire\Settings\SmsSettings;
 use App\Models\Setting;
 use App\Models\User;
+use App\Services\Sms\AfricasTalkingSmsService;
 use App\Support\SmsConfigurator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -18,6 +19,36 @@ class SmsSettingsTest extends TestCase
     private function user(): User
     {
         return User::create(['name' => 'Admin', 'email' => 'admin'.Str::random(4).'@test.com', 'password' => bcrypt('x'), 'is_active' => true]);
+    }
+
+    public function test_send_test_sms_only_sends_once_per_click(): void
+    {
+        $user = $this->user();
+        $this->actingAs($user);
+
+        Setting::set(SmsConfigurator::KEY_USERNAME, 'megawattenergies');
+        Setting::set(SmsConfigurator::KEY_API_KEY, 'test-api-key');
+        Setting::set(SmsConfigurator::KEY_SENDER_ID, 'MEGATECH');
+
+        $this->mock(AfricasTalkingSmsService::class, function ($mock) {
+            $mock->shouldReceive('resetClients')->once();
+            $mock->shouldReceive('send')
+                ->once()
+                ->andReturn([
+                    'success' => true,
+                    'status' => 'success',
+                    'message_id' => 'ATXid_test',
+                    'sms_message_id' => 1,
+                    'raw' => [],
+                ]);
+        });
+
+        Livewire::test(SmsSettings::class)
+            ->set('test_phone', '254725584124')
+            ->set('test_message', 'Single test SMS')
+            ->call('sendTest')
+            ->assertHasNoErrors()
+            ->assertSet('testSendInProgress', false);
     }
 
     public function test_can_save_sms_gateway_settings(): void

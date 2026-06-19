@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\Integrations\PayGroService;
+use App\Services\System\CronHealthService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 
@@ -108,6 +109,8 @@ class PayGroSyncCommand extends Command
             );
 
             $this->info("Repayment schedules {$schedules['status']}: {$schedules['processed']} mapped, {$schedules['skipped']} skipped, {$schedules['failed']} failed.");
+
+            app(CronHealthService::class)->recordPayGroSyncRun();
 
             return ($result['status'] === 'failed' || $units['status'] === 'failed' || $plans['status'] === 'failed' || $payments['status'] === 'failed' || $schedules['status'] === 'failed')
                 ? self::FAILURE

@@ -24,6 +24,7 @@ use App\Livewire\Customers\CustomerProfile;
 use App\Livewire\Customers\SegmentManager;
 use App\Livewire\Settings\SmsSettings;
 use App\Livewire\Settings\SystemSettings;
+use App\Livewire\Sms\SmsLogIndex;
 use App\Livewire\Staff\StaffManager;
 use App\Livewire\Templates\TemplateEditor;
 use App\Livewire\Templates\TemplateList;
@@ -90,6 +91,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     Route::get('/analytics', ReportDashboard::class)->name('analytics');
+    Route::get('/sms/logs', SmsLogIndex::class)->name('sms.logs');
     Route::get('/activity', ActivityLog::class)->name('activity');
     Route::get('/help', \App\Livewire\HelpCenter::class)->name('help');
     Route::get('/staff', StaffManager::class)->name('staff');

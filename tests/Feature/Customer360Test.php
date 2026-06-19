@@ -9,9 +9,13 @@ use App\Models\Customer;
 use App\Models\CustomerAsset;
 use App\Models\CustomerPayment;
 use App\Models\RepaymentSchedule;
+use App\Models\Setting;
 use App\Models\SmsMessage;
 use App\Models\TokenTransaction;
 use App\Models\User;
+use App\Services\Integrations\PayGroService;
+use App\Services\Sms\AfricasTalkingSmsService;
+use App\Support\SmsConfigurator;
 use App\Services\Sms\InboundSmsHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -35,6 +39,13 @@ class Customer360Test extends TestCase
     private function user(): User
     {
         return User::create(['name' => 'Admin', 'email' => 'admin'.Str::random(4).'@test.com', 'password' => bcrypt('x'), 'is_active' => true]);
+    }
+
+    private function seedSmsCredentials(): void
+    {
+        Setting::set(SmsConfigurator::KEY_USERNAME, 'megawattenergies');
+        Setting::set(SmsConfigurator::KEY_API_KEY, 'test-api-key');
+        Setting::set(SmsConfigurator::KEY_SENDER_ID, 'MEGATECH');
     }
 
     public function test_days_in_arrears_accessor(): void
@@ -91,6 +102,30 @@ class Customer360Test extends TestCase
         $component->call('setPaymentsSubTab', 'history')->assertSee('MPX123')->assertSee('Total Paid');
         $component->call('setTab', 'tokens')->assertSee('30-day token');
         $component->call('setTab', 'assets')->assertSee('SN-ABC')->assertSee('Solar Unit');
+    }
+
+    public function test_set_tab_does_not_call_paygro_sync(): void
+    {
+        $this->actingAs($this->user());
+        $customer = $this->customer();
+
+        $this->mock(PayGroService::class, function ($mock) {
+            $mock->shouldNotReceive('syncUnitsForCustomer');
+            $mock->shouldNotReceive('refreshCustomerStatusesFromPayGro');
+            $mock->shouldReceive('buildCustomerFinancialOverview')->andReturn([
+                'outstanding_balance' => 0,
+                'total_paid' => 0,
+                'total_unlock_price' => 0,
+                'has_plan_balances' => false,
+                'units' => [],
+            ]);
+            $mock->shouldReceive('customerPayGroSerials')->andReturn(collect());
+        });
+
+        Livewire::test(CustomerProfile::class, ['customer' => $customer])
+            ->call('setTab', 'overview')
+            ->call('setTab', 'tokens')
+            ->call('setTab', 'payments');
     }
 
     public function test_payment_history_can_filter_by_asset(): void
@@ -246,11 +281,118 @@ class Customer360Test extends TestCase
             'campaign_id' => null,
         ]);
 
-        Queue::assertPushed(\App\Jobs\SendSmsJob::class, function ($job) use ($customer) {
-            return $job->to === $customer->phone
+        Queue::assertPushed(\App\Jobs\SendSmsJob::class, function ($job) {
+            return $job->to === '254712345699'
                 && $job->message === 'Hello, your account is up to date.'
                 && $job->smsMessageId !== null;
         });
+    }
+
+    public function test_token_sms_sends_immediately_without_queue(): void
+    {
+        Queue::fake();
+        $this->actingAs($this->user());
+        $customer = $this->customer(['phone' => '+254712345688']);
+
+        $this->seedSmsCredentials();
+
+        $this->mock(PayGroService::class, function ($mock) {
+            $mock->shouldReceive('syncLatestFreeTokenForCustomer')
+                ->once()
+                ->andReturn([
+                    'generated_token_value' => '1234-5678-9012',
+                    'product_serial_number' => 'SN-001',
+                    'token_generation_date' => '2026-06-18',
+                ]);
+        });
+
+        $this->mock(AfricasTalkingSmsService::class, function ($mock) use ($customer) {
+            $mock->shouldReceive('resetClients')->once();
+            $mock->shouldReceive('send')
+                ->once()
+                ->andReturnUsing(function ($to, $message, $senderId = null, $meta = [], $enqueue = false, $existingMessageId = null, $username = null, $apiKey = null) use ($customer) {
+                    $this->assertSame($customer->phone, $to);
+                    $this->assertSame('megawattenergies', $username);
+                    $this->assertSame('test-api-key', $apiKey);
+                    $this->assertStringContainsString('Hi Jane,', $message);
+                    $this->assertStringContainsString('1234-5678-9012', $message);
+                    $this->assertNotNull($existingMessageId);
+
+                    return [
+                        'success' => true,
+                        'message_id' => 'AT-123',
+                        'status' => 'sent',
+                        'raw' => [],
+                        'sms_message_id' => $existingMessageId,
+                    ];
+                });
+        });
+
+        Livewire::test(CustomerProfile::class, ['customer' => $customer])
+            ->call('sendLatestPayGroTokenSms')
+            ->assertHasNoErrors()
+            ->assertSet('payGroTokenStatus', 'Token SMS accepted (sent) to '.$customer->phone.' (ID: AT-123).');
+
+        Queue::assertNothingPushed();
+
+        $this->assertTrue(
+            SmsMessage::where('customer_id', $customer->id)
+                ->where('direction', 'outbound')
+                ->where('body', 'like', '%1234-5678-9012%')
+                ->exists()
+        );
+    }
+
+    public function test_token_sms_can_be_sent_to_custom_phone(): void
+    {
+        Queue::fake();
+        $this->actingAs($this->user());
+        $customer = $this->customer(['phone' => '+254712345688']);
+        $alternatePhone = '254798765432';
+
+        $this->seedSmsCredentials();
+
+        $this->mock(PayGroService::class, function ($mock) {
+            $mock->shouldReceive('syncLatestFreeTokenForCustomer')
+                ->once()
+                ->andReturn([
+                    'generated_token_value' => '9999-8888-7777',
+                    'product_serial_number' => 'SN-002',
+                    'token_generation_date' => '2026-06-18',
+                ]);
+        });
+
+        $this->mock(AfricasTalkingSmsService::class, function ($mock) use ($alternatePhone) {
+            $mock->shouldReceive('resetClients')->once();
+            $mock->shouldReceive('send')
+                ->once()
+                ->andReturnUsing(function ($to, $message, $senderId = null, $meta = [], $enqueue = false, $existingMessageId = null) use ($alternatePhone) {
+                    $this->assertSame($alternatePhone, $to);
+                    $this->assertStringContainsString('9999-8888-7777', $message);
+
+                    return [
+                        'success' => true,
+                        'message_id' => 'AT-456',
+                        'status' => 'sent',
+                        'raw' => [],
+                        'sms_message_id' => $existingMessageId,
+                    ];
+                });
+        });
+
+        Livewire::test(CustomerProfile::class, ['customer' => $customer])
+            ->set('tokenSmsPhone', $alternatePhone)
+            ->call('sendLatestPayGroTokenSms')
+            ->assertHasNoErrors()
+            ->assertSet('payGroTokenStatus', 'Token SMS accepted (sent) to '.$alternatePhone.' (ID: AT-456).');
+
+        Queue::assertNothingPushed();
+
+        $this->assertDatabaseHas('sms_messages', [
+            'customer_id' => $customer->id,
+            'to' => $alternatePhone,
+            'direction' => 'outbound',
+        ]);
     }
 
     public function test_cannot_send_sms_to_opted_out_customer(): void

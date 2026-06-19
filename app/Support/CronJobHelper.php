@@ -8,7 +8,7 @@ namespace App\Support;
 class CronJobHelper
 {
     /**
-     * @return array<int, array{label: string, schedule: string, command: string, description: string, required: bool}>
+     * @return array<int, array{label: string, schedule: string, shell_command: string, command: string, description: string, required: bool}>
      */
     public static function commands(?string $phpBinary = null, ?string $artisanPath = null): array
     {
@@ -20,17 +20,20 @@ class CronJobHelper
             [
                 'label' => 'Laravel scheduler',
                 'schedule' => '* * * * *',
-                'command' => "* * * * * {$php} {$artisan} schedule:run >> /dev/null 2>&1",
+                'shell_command' => "{$php} {$artisan} schedule:run >/dev/null 2>&1",
+                'command' => "* * * * * {$php} {$artisan} schedule:run >/dev/null 2>&1",
                 'description' => 'Required on production. Runs SMS automations (hourly) and PayGro sync (daily).',
                 'required' => true,
             ],
         ];
 
         if ($queue !== 'sync') {
+            $shell = "{$php} {$artisan} queue:work --stop-when-empty --max-time=55 --queue=sms,campaigns,default >/dev/null 2>&1";
             $jobs[] = [
                 'label' => 'Queue worker',
                 'schedule' => '* * * * *',
-                'command' => "* * * * * {$php} {$artisan} queue:work --stop-when-empty --max-time=55 --queue=sms,campaigns,default >> /dev/null 2>&1",
+                'shell_command' => $shell,
+                'command' => "* * * * * {$shell}",
                 'description' => "Required while QUEUE_CONNECTION={$queue}. Processes queued SMS and campaign messages.",
                 'required' => true,
             ];

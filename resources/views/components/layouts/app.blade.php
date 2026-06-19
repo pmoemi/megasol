@@ -20,10 +20,12 @@
         <link rel="icon" href="{{ $favicon }}">
     @endif
 
-    {{-- Google Fonts: Outfit --}}
+    {{-- Google Fonts: configurable in Settings → General (Appearance) --}}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    @if ($fontUrl = \App\Support\AppTheme::googleFontUrl())
+        <link href="{{ $fontUrl }}" rel="stylesheet">
+    @endif
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
@@ -112,6 +114,7 @@
                 ['label' => 'SMS Templates',   'href' => '/templates',       'icon' => '<path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>'],
                 ['label' => 'Email Templates', 'href' => '/email-templates', 'icon' => '<path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>'],
                 ['label' => 'Analytics',       'href' => '/analytics',       'icon' => '<path d="M3 3v18h18"></path><path d="M7 14l4-4 3 3 5-6"></path>'],
+                ['label' => 'SMS Logs',        'href' => '/sms/logs',        'icon' => '<path d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>'],
                 ['label' => 'Activity',        'href' => '/activity',        'icon' => '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>'],
                 ['label' => 'Help Center',     'href' => '/help',            'icon' => '<circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line>'],
                 ['section' => 'Administration'],

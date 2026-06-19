@@ -12,6 +12,7 @@ use App\Models\EmailMessage;
 use App\Models\Segment;
 use App\Models\SmsMessage;
 use App\Models\User;
+use App\Services\Sms\AfricasTalkingSmsService;
 use App\Support\SegmentFields;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -275,8 +276,10 @@ class CampaignService
             : 0;
 
         $dispatched = 0;
+        $failed = 0;
+        $smsService = app(AfricasTalkingSmsService::class);
 
-        DB::transaction(function () use ($campaign, $customers, $isEmail, $perMinute, $batchSize, $batchDelaySeconds, $variants, $countA, &$dispatched) {
+        DB::transaction(function () use ($campaign, $customers, $isEmail, $perMinute, $batchSize, $batchDelaySeconds, $variants, $countA, &$dispatched, &$failed, $smsService) {
             foreach ($customers as $customer) {
                 $delay = $this->dispatchDelay($dispatched, $perMinute, $batchSize, $batchDelaySeconds);
 
@@ -312,13 +315,59 @@ class CampaignService
                         ->onQueue('campaigns')
                         ->delay($delay);
                 } else {
+                    if ($customer->sms_opted_out) {
+                        CampaignRecipient::create([
+                            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                            'campaign_id' => $campaign->id,
+                            'customer_id' => $customer->id,
+                            'phone' => $customer->phone,
+                            'email' => $customer->email,
+                            'body' => $this->mergeTags($campaign->body ?? '', $customer),
+                            'status' => 'failed',
+                        ]);
+                        $failed++;
+
+                        continue;
+                    }
+
+                    $phone = $smsService->resolveRecipientPhone((string) ($customer->phone ?? ''));
+
+                    if ($phone === null) {
+                        $body = $this->mergeTags($campaign->body ?? '', $customer);
+
+                        CampaignRecipient::create([
+                            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                            'campaign_id' => $campaign->id,
+                            'customer_id' => $customer->id,
+                            'phone' => $customer->phone,
+                            'email' => $customer->email,
+                            'body' => $body,
+                            'status' => 'failed',
+                        ]);
+
+                        SmsMessage::create([
+                            'customer_id' => $customer->id,
+                            'campaign_id' => $campaign->id,
+                            'to' => $customer->phone ?? '',
+                            'body' => $body,
+                            'direction' => 'outbound',
+                            'status' => 'failed',
+                            'error_message' => 'Invalid Kenyan mobile number.',
+                            'meta' => ['source' => 'campaign', 'campaign_id' => $campaign->id],
+                        ]);
+
+                        $failed++;
+
+                        continue;
+                    }
+
                     $body = $this->mergeTags($campaign->body ?? '', $customer);
 
                     $recipient = CampaignRecipient::create([
                         'uuid' => (string) \Illuminate\Support\Str::uuid(),
                         'campaign_id' => $campaign->id,
                         'customer_id' => $customer->id,
-                        'phone' => $customer->phone,
+                        'phone' => $phone,
                         'email' => $customer->email,
                         'body' => $body,
                         'status' => 'queued',
@@ -328,17 +377,19 @@ class CampaignService
                         'customer_id' => $customer->id,
                         'campaign_id' => $campaign->id,
                         'campaign_recipient_id' => $recipient->id,
-                        'to' => $customer->phone,
+                        'to' => $phone,
                         'body' => $body,
                         'direction' => 'outbound',
                         'status' => 'queued',
+                        'meta' => ['source' => 'campaign', 'campaign_id' => $campaign->id],
                     ]);
 
                     SendSmsJob::dispatch(
-                        to: $customer->phone,
+                        to: $phone,
                         message: $body,
                         smsMessageId: $smsMessage->id,
                         meta: [
+                            'source' => 'campaign',
                             'campaign_id' => $campaign->id,
                             'campaign_recipient_id' => $recipient->id,
                             'customer_id' => $customer->id,
@@ -352,10 +403,10 @@ class CampaignService
 
         $stats = [
             'total' => $customers->count(),
-            'queued' => $customers->count(),
+            'queued' => max(0, $customers->count() - $failed),
             'sent' => 0,
             'delivered' => 0,
-            'failed' => 0,
+            'failed' => $failed,
         ];
 
         $campaign->update([

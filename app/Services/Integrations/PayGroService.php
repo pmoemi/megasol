@@ -536,16 +536,25 @@ class PayGroService
             return 0;
         }
 
-        if ($this->customerHasHirePurchaseUnit($customer)) {
+        $owingAssets = $customer->assets->reject(fn (CustomerAsset $asset) => $asset->isPaidOff());
+
+        if ($owingAssets->isEmpty()) {
+            return 0;
+        }
+
+        if ($owingAssets->contains(fn (CustomerAsset $asset) => $this->assetIsHirePurchase($asset))) {
             $fromDueDate = 0;
 
-            if ($customer->next_payment_date?->isPast()) {
+            if (
+                (float) ($customer->outstanding_balance ?? 0) > 0.01
+                && $customer->next_payment_date?->isPast()
+            ) {
                 $fromDueDate = (int) $customer->next_payment_date->startOfDay()->diffInDays(now()->startOfDay());
             }
 
             $fromLastPayment = 0;
 
-            foreach ($customer->assets as $asset) {
+            foreach ($owingAssets as $asset) {
                 if (! $this->assetIsHirePurchase($asset)) {
                     continue;
                 }
@@ -604,6 +613,10 @@ class PayGroService
         $fromAssetMeta = 0;
 
         foreach ($customer->assets as $asset) {
+            if ($asset->isPaidOff()) {
+                continue;
+            }
+
             $meta = is_array($asset->meta) ? $asset->meta : [];
             $fromAssetMeta = max($fromAssetMeta, (int) ($meta['paygro_days_since_last_payment'] ?? 0));
 

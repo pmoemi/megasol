@@ -9,7 +9,7 @@
     $scheduleColors = ['paid' => 'bg-success/15 text-success','partial' => 'bg-warning/15 text-warning','overdue' => 'bg-danger/15 text-danger','pending' => 'bg-surface text-muted','waived' => 'bg-info/15 text-info'];
     $assetColors = ['active' => 'bg-success/15 text-success','faulty' => 'bg-warning/15 text-warning','repossessed' => 'bg-danger/15 text-danger','returned' => 'bg-surface text-muted','decommissioned' => 'bg-surface text-muted'];
     $repaymentStatusColors = ['success' => 'bg-success/15 text-success', 'danger' => 'bg-danger/15 text-danger', 'info' => 'bg-info/15 text-info'];
-    $smsStatusColors = ['queued' => 'bg-warning/15 text-warning','sent' => 'bg-info/15 text-info','success' => 'bg-success/15 text-success','delivered' => 'bg-success/15 text-success','failed' => 'bg-danger/15 text-danger','rejected' => 'bg-danger/15 text-danger'];
+    $smsStatusColors = ['queued' => 'bg-warning/15 text-warning','sent' => 'bg-info/15 text-info','success' => 'bg-success/15 text-success','processed' => 'bg-info/15 text-info','submitted' => 'bg-info/15 text-info','buffered' => 'bg-info/15 text-info','delivered' => 'bg-success/15 text-success','failed' => 'bg-danger/15 text-danger','rejected' => 'bg-danger/15 text-danger','unknown' => 'bg-warning/15 text-warning'];
     $avatarPalette = ['bg-brand/15 text-brand','bg-info/15 text-info','bg-success/15 text-success','bg-warning/15 text-warning','bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'];
 @endphp
 
@@ -54,10 +54,12 @@
     </div>
 
     {{-- ── Tab nav ────────────────────────────────────────────── --}}
-    <div class="border-b border-border">
+    <div class="border-b border-border" wire:loading.class="opacity-60" wire:target="setTab,setPaymentsSubTab">
         <nav class="flex gap-6 -mb-px overflow-x-auto">
             @foreach($tabs as $key => $label)
             <button type="button" wire:click="setTab('{{ $key }}')"
+                    wire:loading.attr="disabled"
+                    wire:target="setTab"
                     class="pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap flex-shrink-0
                            {{ $tab === $key ? 'border-brand text-brand' : 'border-transparent text-muted hover:text-ink/80 hover:border-border' }}">
                 {{ $label }}
@@ -84,6 +86,10 @@
             </div>
             <div class="bg-surface-2 rounded-2xl border border-border p-5">
                 <p class="text-xs font-medium text-muted uppercase tracking-wider">Days in Arrears</p>
+                @if($customer->isFullyPaidOff())
+                <p class="text-2xl font-bold text-success mt-1">—</p>
+                <p class="text-xs text-muted mt-1">Fully paid — not applicable</p>
+                @else
                 <p class="text-2xl font-bold mt-1 {{ $customer->days_in_arrears > 0 ? 'text-danger' : 'text-ink' }}">{{ number_format($customer->days_in_arrears) }}</p>
                 <p class="text-xs text-muted mt-1">
                     @if($customer->token_balance > 0)
@@ -94,6 +100,7 @@
                         Days since last payment
                     @endif
                 </p>
+                @endif
             </div>
             <div class="bg-surface-2 rounded-2xl border border-border p-5">
                 <p class="text-xs font-medium text-muted uppercase tracking-wider">Total Paid</p>
@@ -378,16 +385,28 @@
                 <h3 class="text-sm font-semibold text-ink">Token / Credit Ledger</h3>
                 <p class="text-xs text-muted mt-0.5">Current balance: <span class="font-semibold text-ink">{{ number_format($customer->token_balance) }} days</span></p>
             </div>
-            <div class="flex flex-wrap items-center gap-2">
+            <form wire:submit.prevent="sendLatestPayGroTokenSms" class="flex flex-wrap items-center gap-2">
+                <label for="tokenSmsPhone" class="text-xs text-muted whitespace-nowrap">To</label>
+                <input
+                    id="tokenSmsPhone"
+                    type="text"
+                    wire:model="tokenSmsPhone"
+                    placeholder="254725584124"
+                    class="input w-40 sm:w-44 !px-2 !py-1 text-xs font-mono rounded-lg @error('tokenSmsPhone') !border-danger @enderror"
+                    wire:loading.attr="disabled"
+                    wire:target="fetchLatestPayGroToken,sendLatestPayGroTokenSms"
+                    @disabled($customer->sms_opted_out)
+                >
                 <button type="button" wire:click="fetchLatestPayGroToken" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium text-ink/80 bg-surface border border-border rounded-xl hover:bg-surface-2 transition-colors" wire:loading.attr="disabled" wire:target="fetchLatestPayGroToken,sendLatestPayGroTokenSms">
                     <span wire:loading.remove wire:target="fetchLatestPayGroToken">Fetch Latest Token</span>
                     <span wire:loading wire:target="fetchLatestPayGroToken">Fetching…</span>
                 </button>
-                <button type="button" wire:click="sendLatestPayGroTokenSms" class="btn-primary inline-flex items-center gap-1.5 text-sm" wire:loading.attr="disabled" wire:target="fetchLatestPayGroToken,sendLatestPayGroTokenSms" @disabled($customer->sms_opted_out)>
+                <button type="submit" class="btn-primary inline-flex items-center gap-1.5 text-sm" wire:loading.attr="disabled" wire:target="fetchLatestPayGroToken,sendLatestPayGroTokenSms" @disabled($customer->sms_opted_out)>
                     <span wire:loading.remove wire:target="sendLatestPayGroTokenSms">Send Token SMS</span>
-                    <span wire:loading wire:target="sendLatestPayGroTokenSms">Queueing…</span>
+                    <span wire:loading wire:target="sendLatestPayGroTokenSms">Sending…</span>
                 </button>
-            </div>
+            </form>
+            @error('tokenSmsPhone') <p class="text-xs text-danger mt-1 lg:text-right">{{ $message }}</p> @enderror
         </div>
         @if(($payGroMatchSerials ?? collect())->isEmpty())
         <div class="px-5 py-3 border-b border-border bg-warning/10">

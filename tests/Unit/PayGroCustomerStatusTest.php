@@ -193,6 +193,41 @@ class PayGroCustomerStatusTest extends TestCase
         $this->assertSame(0, $customer->days_in_arrears);
     }
 
+    public function test_paid_off_asset_has_zero_days_in_arrears(): void
+    {
+        $customer = Customer::create([
+            'first_name' => 'Paid',
+            'last_name' => 'Off',
+            'phone' => '+254712345683',
+            'payment_status' => 'paid_off',
+            'token_balance' => 0,
+            'outstanding_balance' => 0,
+            'next_payment_date' => now()->subDays(45),
+        ]);
+
+        CustomerAsset::create([
+            'customer_id' => $customer->id,
+            'unit_serial' => 'SN-PAID-001',
+            'product_name' => 'Solar Unit',
+            'status' => 'active',
+            'meta' => [
+                'paygro_payment_credit_type' => 'Hire Purchase',
+                'paygro_repayment_status' => 'paid_off',
+                'paygro_outstanding_balance' => 0,
+                'paygro_days_since_last_payment' => 120,
+                'paygro_credit_days_down_payment' => 7,
+            ],
+        ]);
+
+        app(PayGroService::class)->refreshCustomerStatusesFromPayGro($customer->fresh());
+
+        $customer->refresh();
+
+        $this->assertTrue($customer->isFullyPaidOff());
+        $this->assertSame(0, $customer->days_in_arrears);
+        $this->assertSame(0, $customer->meta['paygro_days_in_arrears']);
+    }
+
     public function test_map_report_record_treats_credit_balance_as_token_days(): void
     {
         $service = app(PayGroService::class);

@@ -82,4 +82,49 @@ class HelpAndDashboardsTest extends TestCase
         Livewire::test(\App\Livewire\Activity\ActivityLog::class)
             ->assertSee('Activity Log');
     }
+
+    public function test_sms_logs_page_renders_and_filters(): void
+    {
+        $this->actingUser();
+
+        $customer = \App\Models\Customer::create([
+            'first_name' => 'Jane',
+            'last_name' => 'Doe',
+            'email' => 'jane@test.com',
+            'phone' => '254712345678',
+            'account_number' => 'ACC-001',
+        ]);
+
+        \App\Models\SmsMessage::create([
+            'customer_id' => $customer->id,
+            'to' => '254712345678',
+            'body' => 'Your token is 12345',
+            'direction' => 'outbound',
+            'status' => 'success',
+            'meta' => ['source' => 'paygro_latest_token'],
+            'provider_message_id' => 'ATMSG001',
+            'sent_at' => now(),
+        ]);
+
+        \App\Models\SmsMessage::create([
+            'to' => '254725584124',
+            'body' => 'Settings test ping',
+            'direction' => 'outbound',
+            'status' => 'success',
+            'meta' => ['source' => 'settings_test'],
+            'sent_at' => now(),
+        ]);
+
+        Livewire::test(\App\Livewire\Sms\SmsLogIndex::class)
+            ->assertSee('SMS Logs')
+            ->assertSee('Your token is 12345')
+            ->assertSee('Jane Doe')
+            ->assertSee('Settings test ping')
+            ->set('hideTests', true)
+            ->assertSee('Your token is 12345')
+            ->assertDontSee('Settings test ping')
+            ->set('search', 'ATMSG001')
+            ->assertSee('Your token is 12345')
+            ->assertDontSee('Settings test ping');
+    }
 }

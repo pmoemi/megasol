@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\RunAutomationJob;
 use App\Models\Automation;
 use App\Services\Automation\AutomationRunner;
+use App\Services\System\CronHealthService;
 use Illuminate\Console\Command;
 
 class RunAutomationsCommand extends Command
@@ -15,10 +16,21 @@ class RunAutomationsCommand extends Command
 
     public function handle(AutomationRunner $runner): int
     {
-        $automations = Automation::query()->where('is_active', true)->get();
+        if (AutomationRunner::isPaused()) {
+            $this->warn('SMS automations are paused in settings. Skipping.');
+            app(CronHealthService::class)->recordAutomationsRun();
+
+            return self::SUCCESS;
+        }
+
+        $automations = Automation::query()
+            ->where('is_active', true)
+            ->whereIn('type', AutomationRunner::SCHEDULED_TYPES)
+            ->get();
 
         if ($automations->isEmpty()) {
             $this->info('No active automations found.');
+            app(CronHealthService::class)->recordAutomationsRun();
 
             return self::SUCCESS;
         }
@@ -40,6 +52,8 @@ class RunAutomationsCommand extends Command
         $this->info($this->option('sync')
             ? "Completed. {$total} message(s) queued."
             : "Dispatched {$total} automation job(s).");
+
+        app(CronHealthService::class)->recordAutomationsRun();
 
         return self::SUCCESS;
     }

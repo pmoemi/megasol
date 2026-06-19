@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Setting;
+use App\Services\Sms\AfricasTalkingSmsService;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -84,5 +85,61 @@ class SmsConfigurator
         if (array_key_exists(self::KEY_INBOUND_SECRET, $values->all())) {
             config(['africastalking.inbound.secret' => $values[self::KEY_INBOUND_SECRET] ?: null]);
         }
+
+        if (app()->bound(AfricasTalkingSmsService::class)) {
+            app(AfricasTalkingSmsService::class)->resetClients();
+        }
+    }
+
+    /**
+     * Fresh outbound credentials from DB / env after {@see apply()}.
+     *
+     * @return array{username: string, api_key: string, sender_id: ?string}
+     */
+    public static function resolveOutboundCredentials(): array
+    {
+        self::apply();
+
+        $username = config('africastalking.username');
+        $apiKey = config('africastalking.api_key');
+        $senderId = config('africastalking.sender_id');
+
+        if (! is_string($username) || trim($username) === '' || ! is_string($apiKey) || trim($apiKey) === '') {
+            throw new \RuntimeException(
+                'Africa\'s Talking is not configured. Open Settings → SMS Gateway, enter username and API key, then click Save Settings.'
+            );
+        }
+
+        return [
+            'username' => trim($username),
+            'api_key' => trim($apiKey),
+            'sender_id' => is_string($senderId) && trim($senderId) !== '' ? trim($senderId) : null,
+        ];
+    }
+
+    /**
+     * Resolve credentials for a single outbound send.
+     * Explicit username/apiKey win (Settings test, inbound replies).
+     * Otherwise uses DB / env via {@see apply()} + {@see resolveOutboundCredentials()}.
+     *
+     * @return array{username: string, api_key: string, sender_id: ?string}
+     */
+    public static function credentialsForSend(?string $username = null, ?string $apiKey = null, ?string $senderId = null): array
+    {
+        if (is_string($username) && trim($username) !== '' && is_string($apiKey) && trim($apiKey) !== '') {
+            return [
+                'username' => trim($username),
+                'api_key' => trim($apiKey),
+                'sender_id' => is_string($senderId) && trim($senderId) !== '' ? trim($senderId) : null,
+            ];
+        }
+
+        $credentials = self::resolveOutboundCredentials();
+
+        if (is_string($senderId) && trim($senderId) !== '') {
+            $credentials['sender_id'] = trim($senderId);
+        }
+
+        return $credentials;
     }
 }

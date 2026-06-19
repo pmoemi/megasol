@@ -47,37 +47,29 @@ class ReportDashboard extends Component
             ->whereNotNull('opened_at')
             ->count();
 
-        $this->dailyStats = SmsMessage::query()
-            ->where('direction', 'outbound')
+        $reporting = SmsMessage::query()->forReporting();
+
+        $this->dailyStats = (clone $reporting)
+            ->successfullySent()
             ->where('created_at', '>=', now()->subDays(14))
-            ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+            ->selectRaw('DATE(COALESCE(sent_at, created_at)) as date, COUNT(*) as count')
             ->groupBy('date')
             ->orderBy('date')
             ->get()
             ->map(fn ($row) => ['date' => $row->date, 'count' => (int) $row->count])
             ->all();
 
-        $this->statusBreakdown = SmsMessage::query()
-            ->where('direction', 'outbound')
+        $this->statusBreakdown = (clone $reporting)
             ->selectRaw('status, COUNT(*) as count')
             ->groupBy('status')
             ->pluck('count', 'status')
             ->all();
 
-        $this->totalSent = SmsMessage::query()
-            ->where('direction', 'outbound')
-            ->whereIn('status', ['sent', 'delivered', 'success'])
-            ->count();
+        $this->totalSent = (clone $reporting)->successfullySent()->count();
 
-        $this->totalDelivered = SmsMessage::query()
-            ->where('direction', 'outbound')
-            ->where('status', 'delivered')
-            ->count();
+        $this->totalDelivered = (clone $reporting)->where('status', 'delivered')->count();
 
-        $this->totalFailed = SmsMessage::query()
-            ->where('direction', 'outbound')
-            ->where('status', 'failed')
-            ->count();
+        $this->totalFailed = (clone $reporting)->where('status', 'failed')->count();
     }
 
     public function exportCampaigns(): BinaryFileResponse

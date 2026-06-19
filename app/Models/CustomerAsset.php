@@ -53,6 +53,21 @@ class CustomerAsset extends Model
         };
     }
 
+    public function isPaidOff(): bool
+    {
+        $meta = is_array($this->meta) ? $this->meta : [];
+
+        if (($meta['paygro_repayment_status'] ?? '') === 'paid_off') {
+            return true;
+        }
+
+        if (array_key_exists('paygro_outstanding_balance', $meta)) {
+            return (float) $meta['paygro_outstanding_balance'] <= 0.01;
+        }
+
+        return false;
+    }
+
     public function scopeInStock(Builder $query): Builder
     {
         return $query->whereNull('customer_id');

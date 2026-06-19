@@ -3,12 +3,14 @@
 namespace Tests\Feature;
 
 use App\Jobs\SendCampaignEmailJob;
+use App\Jobs\SendSmsJob;
 use App\Models\AbTestVariant;
 use App\Models\Campaign;
 use App\Models\CampaignLink;
 use App\Models\CampaignRecipient;
 use App\Models\Customer;
 use App\Models\EmailTemplate;
+use App\Models\SmsMessage;
 use App\Models\User;
 use App\Models\Setting;
 use App\Services\Campaign\CampaignService;
@@ -92,6 +94,51 @@ class CampaignParitySmokeTest extends TestCase
         // Variant A subject was merged in (per-recipient subject persisted).
         $this->assertTrue($recipients->where('ab_variant', 'A')->every(fn ($r) => $r->subject === 'Subject A'));
         Queue::assertPushed(SendCampaignEmailJob::class, 4);
+    }
+
+    public function test_sms_campaign_normalizes_phone_and_skips_invalid_recipients(): void
+    {
+        Queue::fake();
+        $user = $this->user();
+
+        $valid = $this->customer(['phone' => '0725584124']);
+        $invalid = $this->customer(['phone' => '25472584124']);
+
+        $campaign = Campaign::create([
+            'name' => 'SMS Blast',
+            'channel' => 'sms',
+            'type' => 'regular',
+            'body' => 'Hi {first_name}, reminder from MegaSol.',
+            'status' => 'draft',
+            'audience_type' => 'customers',
+            'audience_meta' => ['customer_ids' => [$valid->id, $invalid->id]],
+            'sends_per_minute' => 60,
+            'created_by' => $user->id,
+        ]);
+
+        app(CampaignService::class)->sendCampaign($campaign);
+
+        $this->assertDatabaseHas('campaign_recipients', [
+            'campaign_id' => $campaign->id,
+            'customer_id' => $valid->id,
+            'phone' => '254725584124',
+            'status' => 'queued',
+        ]);
+
+        $this->assertDatabaseHas('campaign_recipients', [
+            'campaign_id' => $campaign->id,
+            'customer_id' => $invalid->id,
+            'status' => 'failed',
+        ]);
+
+        Queue::assertPushed(SendSmsJob::class, 1);
+        Queue::assertPushed(SendSmsJob::class, fn ($job) => $job->to === '254725584124');
+
+        $this->assertDatabaseHas('sms_messages', [
+            'customer_id' => $invalid->id,
+            'status' => 'failed',
+            'error_message' => 'Invalid Kenyan mobile number.',
+        ]);
     }
 
     public function test_open_tracking_pixel_marks_recipient_and_campaign(): void

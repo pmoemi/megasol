@@ -3,7 +3,10 @@
 namespace App\Traits;
 
 /**
- * Normalizes phone numbers to E.164 for Africa's Talking SMS.
+ * Normalizes Kenyan phone numbers for Africa's Talking SMS.
+ *
+ * Matches megawatt format: 254XXXXXXXXX (no "+" prefix), which is what
+ * the working megawatt CRM uses in SendSmsJob.
  */
 trait NormalizesPhoneNumbers
 {
@@ -12,26 +15,54 @@ trait NormalizesPhoneNumbers
         $defaultCountryCode = $defaultCountryCode
             ?? config('africastalking.default_country_code', '254');
 
-        $cleaned = preg_replace('/[\s\-\(\)\.]+/', '', trim($phone));
+        $phone = trim($phone);
 
-        if ($cleaned === '') {
+        if (preg_match('/^\+?\d+(?:\.\d+)?e\+?\d+$/i', $phone)) {
+            $phone = number_format((float) $phone, 0, '', '');
+        }
+
+        $digits = preg_replace('/\D/', '', $phone);
+
+        if ($digits === '') {
             return $phone;
         }
 
-        // Local format: 0712345678 → +254712345678
-        if (preg_match('/^0(\d{9,10})$/', $cleaned, $matches)) {
-            return '+'.$defaultCountryCode.$matches[1];
+        if (preg_match('/^07\d{8}$/', $digits)) {
+            return $defaultCountryCode.substr($digits, 1);
         }
 
-        if (ctype_digit($cleaned)) {
-            return '+'.$cleaned;
+        if (preg_match('/^01\d{8}$/', $digits)) {
+            return $defaultCountryCode.substr($digits, 1);
         }
 
-        if (preg_match('/^\+\d+$/', $cleaned)) {
-            return $cleaned;
+        if (preg_match('/^7\d{8}$/', $digits)) {
+            return $defaultCountryCode.$digits;
         }
 
-        return $cleaned;
+        if (preg_match('/^254\d{9}$/', $digits)) {
+            return $digits;
+        }
+
+        if (preg_match('/^072\d{6}$/', $digits)) {
+            return $defaultCountryCode.substr($digits, 1);
+        }
+
+        if (preg_match('/^011\d{6}$/', $digits)) {
+            return $defaultCountryCode.substr($digits, 1);
+        }
+
+        if (str_starts_with($digits, $defaultCountryCode)) {
+            return $digits;
+        }
+
+        return $defaultCountryCode.ltrim($digits, '0');
+    }
+
+    protected function isValidKenyanMobile(string $phone): bool
+    {
+        $normalized = $this->normalizePhone($phone);
+
+        return (bool) preg_match('/^254\d{9}$/', $normalized);
     }
 
     /**

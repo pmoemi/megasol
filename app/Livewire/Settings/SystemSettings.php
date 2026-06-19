@@ -3,8 +3,10 @@
 namespace App\Livewire\Settings;
 
 use App\Services\System\CacheService;
+use App\Services\System\CronHealthService;
 use App\Services\System\MigrationService;
 use App\Support\CronJobHelper;
+use Illuminate\Support\Facades\Artisan;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -37,26 +39,62 @@ class SystemSettings extends Component
 
     public string $queueConnection = 'sync';
 
-    /** @var array<int, array{label: string, schedule: string, command: string, description: string, required: bool}> */
+    /** @var array<int, array{label: string, schedule: string, shell_command: string, command: string, description: string, required: bool}> */
     public array $cronJobs = [];
 
     /** @var array<int, array{command: string, frequency: string}> */
     public array $scheduledTasks = [];
 
-    public function mount(MigrationService $migrations, CacheService $caches): void
+    /** @var array<string, mixed> */
+    public array $cronHealth = [];
+
+    public function mount(MigrationService $migrations, CacheService $caches, CronHealthService $cronHealth): void
     {
         abort_unless($this->canManageSystem(), 403);
 
         $this->refreshMigrationStatus($migrations);
         $this->refreshCacheStatus($caches);
         $this->refreshCronJobs();
+        $this->refreshCronHealth($cronHealth);
+    }
+
+    public function refreshCronHealth(CronHealthService $cronHealth): void
+    {
+        abort_unless($this->canManageSystem(), 403);
+
+        $this->cronHealth = $cronHealth->status();
+    }
+
+    public function runSchedulerNow(CronHealthService $cronHealth): void
+    {
+        abort_unless($this->canManageSystem(), 403);
+
+        $this->statusMessage = null;
+        $this->statusIsError = false;
+
+        try {
+            Artisan::call('schedule:run');
+            $this->refreshCronHealth($cronHealth);
+
+            $state = $this->cronHealth['state'] ?? 'unknown';
+
+            if ($state === 'ok') {
+                $this->statusMessage = 'Scheduler ran successfully. Cron heartbeat updated.';
+            } else {
+                $this->statusMessage = 'Scheduler command finished. '.$this->cronHealth['message'];
+            }
+        } catch (\Throwable $e) {
+            $this->statusIsError = true;
+            $this->statusMessage = 'Scheduler failed: '.$e->getMessage();
+            $this->refreshCronHealth($cronHealth);
+        }
     }
 
     protected function refreshCronJobs(): void
     {
         $this->appUrl = rtrim((string) config('app.url'), '/');
         $this->artisanPath = base_path('artisan');
-        $this->phpBinary = PHP_BINARY !== '' ? PHP_BINARY : '/usr/local/bin/php';
+        $this->phpBinary = '/usr/local/bin/php';
         $this->queueConnection = (string) config('queue.default', 'sync');
         $this->cronJobs = CronJobHelper::commands($this->phpBinary, $this->artisanPath);
         $this->scheduledTasks = CronJobHelper::scheduledTasks();

@@ -22,6 +22,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'preferences',
     ];
 
     protected $hidden = [
@@ -38,7 +39,19 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
             'two_factor_confirmed_at' => 'datetime',
+            'preferences' => 'array',
         ];
+    }
+
+    /**
+     * A single per-user appearance preference (font, size, radius), or null.
+     */
+    public function appearancePreference(string $key): ?string
+    {
+        $prefs = is_array($this->preferences) ? $this->preferences : [];
+        $value = $prefs['appearance'][$key] ?? null;
+
+        return ($value === null || $value === '') ? null : (string) $value;
     }
 
     public function getActivitylogOptions(): LogOptions

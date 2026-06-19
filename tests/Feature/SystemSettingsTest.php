@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Livewire\Settings\SystemSettings;
 use App\Models\User;
+use App\Services\System\CronHealthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
@@ -69,10 +70,33 @@ class SystemSettingsTest extends TestCase
 
         Livewire::test(SystemSettings::class)
             ->assertSee('Cron jobs (cPanel)')
-            ->assertSee('https://megasol.megawattenergiesltd.com')
+            ->assertSee('Scheduler health')
+            ->assertSee('Awaiting first run')
             ->assertSee('schedule:run')
             ->assertSee('sms:run-automations')
             ->assertSee('SMS sends immediately');
+    }
+
+    public function test_system_settings_shows_healthy_cron_after_heartbeat(): void
+    {
+        app(CronHealthService::class)->recordHeartbeat();
+
+        $this->actingAs($this->admin());
+
+        Livewire::test(SystemSettings::class)
+            ->assertSee('Cron running')
+            ->assertSee('Cron appears configured');
+    }
+
+    public function test_system_settings_can_run_scheduler_now(): void
+    {
+        $this->actingAs($this->admin());
+
+        Livewire::test(SystemSettings::class)
+            ->call('runSchedulerNow')
+            ->assertSet('statusIsError', false);
+
+        $this->assertNotNull(\App\Models\Setting::get(CronHealthService::KEY_SCHEDULER_HEARTBEAT));
     }
 
     public function test_system_settings_shows_queue_worker_cron_when_not_sync(): void

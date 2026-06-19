@@ -9,6 +9,7 @@ use App\Models\RepaymentSchedule;
 use App\Models\SmsMessage;
 use App\Models\User;
 use App\Services\Integrations\PayGroService;
+use App\Services\Sms\AfricasTalkingSmsService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -55,6 +56,8 @@ class CustomerProfile extends Component
     // ── PayGro latest-token lookup ───────────────────────────────────────
     public array $latestPayGroToken = [];
 
+    public string $tokenSmsPhone = '';
+
     public ?string $payGroTokenStatus = null;
 
     public bool $payGroTokenStatusIsError = false;
@@ -86,9 +89,7 @@ class CustomerProfile extends Component
             $this->paymentsSubTab = 'schedule';
         }
 
-        if ($this->tab === 'tokens') {
-            $this->refreshPayGroUnits();
-        }
+        $this->tokenSmsPhone = $this->customer->phone ?? '';
     }
 
     public function getTitleProperty(): string
@@ -100,10 +101,6 @@ class CustomerProfile extends Component
     {
         if (array_key_exists($tab, $this->tabs)) {
             $this->tab = $tab;
-        }
-
-        if ($this->tab === 'tokens') {
-            $this->refreshPayGroUnits();
         }
     }
 
@@ -199,10 +196,29 @@ class CustomerProfile extends Component
             return;
         }
 
-        $this->queueCustomerSms(
-            body: $this->smsBody,
-            source: 'profile',
-            meta: ['sent_by' => auth()->id()],
+        $sms = app(AfricasTalkingSmsService::class);
+        $phone = $sms->resolveRecipientPhone((string) ($this->customer->phone ?? ''));
+
+        if ($phone === null) {
+            $this->addError('smsBody', 'This customer does not have a valid Kenyan mobile number on file.');
+
+            return;
+        }
+
+        $smsMessage = SmsMessage::create([
+            'customer_id' => $this->customer->id,
+            'to' => $phone,
+            'body' => $this->smsBody,
+            'direction' => 'outbound',
+            'status' => 'queued',
+            'meta' => ['source' => 'profile', 'sent_by' => auth()->id()],
+        ]);
+
+        SendSmsJob::dispatch(
+            to: $phone,
+            message: $this->smsBody,
+            smsMessageId: $smsMessage->id,
+            meta: ['source' => 'profile', 'customer_id' => $this->customer->id],
         );
 
         $this->reset('smsBody');
@@ -235,22 +251,34 @@ class CustomerProfile extends Component
         }
     }
 
-    public function sendLatestPayGroTokenSms(PayGroService $payGro): void
+    public function sendLatestPayGroTokenSms(PayGroService $payGro, AfricasTalkingSmsService $sms): void
     {
         $this->resetErrorBag();
 
-        if (! $this->canSendSms('payGroTokenStatus')) {
+        $this->validate([
+            'tokenSmsPhone' => 'required|string|min:9|max:20',
+        ]);
+
+        if (! $sms->isValidKenyanMobileNumber($this->tokenSmsPhone)) {
+            $this->addError('tokenSmsPhone', 'Enter a valid Kenyan mobile (e.g. 254725584124 or 0725584124).');
+
+            return;
+        }
+
+        $this->tokenSmsPhone = $sms->normalizePhoneNumber($this->tokenSmsPhone);
+
+        if (! $this->canSendSms('payGroTokenStatus', $this->tokenSmsPhone)) {
             return;
         }
 
         try {
-            $this->refreshPayGroUnits();
-
-            $token = $payGro->syncLatestFreeTokenForCustomer($this->customer);
+            $token = $this->latestPayGroToken !== []
+                ? $this->latestPayGroToken
+                : $payGro->syncLatestFreeTokenForCustomer($this->customer);
 
             if (! $token) {
                 $this->latestPayGroToken = [];
-                $this->flashPayGroTokenStatus('No PayGro token was found for this customer\'s unit(s) in payment or free-token history.', true);
+                $this->flashPayGroTokenStatus('No PayGro token was found for this customer\'s unit(s). Click Fetch Latest Token first, or run PayGro sync.', true);
 
                 return;
             }
@@ -258,7 +286,8 @@ class CustomerProfile extends Component
             $this->latestPayGroToken = $token;
             $message = $this->latestPayGroTokenSmsBody($token);
 
-            $this->queueCustomerSms(
+            $result = $this->sendCustomerSmsNow(
+                sms: $sms,
                 body: $message,
                 source: 'paygro_latest_token',
                 meta: [
@@ -270,19 +299,31 @@ class CustomerProfile extends Component
                         'token_generation_date' => $token['token_generation_date'] ?? null,
                     ],
                 ],
+                to: $this->tokenSmsPhone,
             );
 
-            $this->flashPayGroTokenStatus('Latest PayGro token queued for SMS.', false);
-            $this->dispatch('toast', type: 'success', message: 'Latest token SMS queued for sending.');
+            $status = $result['status'] ?? 'sent';
+            $messageId = $result['message_id'] ?? null;
+            $suffix = $messageId ? " (ID: {$messageId})" : '';
+
+            $this->flashPayGroTokenStatus('Token SMS accepted ('.$status.') to '.$this->tokenSmsPhone.$suffix.'.', false);
+            $this->dispatch('toast', type: 'success', message: 'Token SMS sent to '.$this->tokenSmsPhone.'.');
         } catch (\Throwable $e) {
-            $this->flashPayGroTokenStatus($e->getMessage(), true);
+            $message = $e->getMessage();
+            if (str_contains($message, '401') || str_contains($message, 'authentication is invalid')) {
+                $message = 'Africa\'s Talking rejected the username or API key (401). '
+                    .'Check Settings → SMS and save a valid API key.';
+            }
+            $this->flashPayGroTokenStatus('Failed to send token SMS: '.$message, true);
         }
     }
 
-    protected function canSendSms(string $errorField): bool
+    protected function canSendSms(string $errorField, ?string $phone = null): bool
     {
-        if (! $this->customer->phone) {
-            $this->addError($errorField, 'This customer has no phone number on file.');
+        $phone = trim($phone ?? $this->customer->phone ?? '');
+
+        if ($phone === '') {
+            $this->addError($errorField, 'A phone number is required to send SMS.');
 
             return false;
         }
@@ -296,24 +337,27 @@ class CustomerProfile extends Component
         return true;
     }
 
-    protected function queueCustomerSms(string $body, string $source, array $meta = []): void
+    /**
+     * @return array{success: bool, message_id: ?string, status: string, raw: mixed, sms_message_id: ?int}
+     */
+    protected function sendCustomerSmsNow(AfricasTalkingSmsService $sms, string $body, string $source, array $meta = [], ?string $to = null): array
     {
-        // Pre-create the linked log so the message appears in this customer's
-        // timeline immediately and the job updates the same record on send.
+        $to = trim($to ?? $this->customer->phone ?? '');
+
         $smsMessage = SmsMessage::create([
             'customer_id' => $this->customer->id,
-            'to' => $this->customer->phone,
+            'to' => $to,
             'body' => $body,
             'direction' => 'outbound',
             'status' => 'queued',
             'meta' => array_merge(['source' => $source], $meta),
         ]);
 
-        SendSmsJob::dispatch(
-            to: $this->customer->phone,
+        return $sms->send(
+            to: $to,
             message: $body,
-            smsMessageId: $smsMessage->id,
-            meta: ['customer_id' => $this->customer->id],
+            meta: array_merge(['customer_id' => $this->customer->id, 'source' => $source], $meta),
+            existingMessageId: $smsMessage->id,
         );
     }
 
@@ -325,8 +369,11 @@ class CustomerProfile extends Component
         $serial = $token['product_serial_number'] ?? $token['matched_asset_serial'] ?? 'your unit';
         $value = $token['generated_token_value'] ?? '';
         $date = $token['token_generation_date_display'] ?? 'recently';
+        $name = trim((string) ($this->customer->first_name ?? ''));
 
-        return "Your latest Megasol token for {$serial} is {$value}. Generated {$date}.";
+        $greeting = $name !== '' ? "Hi {$name}," : 'Hi,';
+
+        return "{$greeting} your latest Megasol token for {$serial} is {$value}. Generated {$date}.";
     }
 
     protected function flashPayGroTokenStatus(string $message, bool $isError): void
@@ -382,8 +429,6 @@ class CustomerProfile extends Component
         // Lazy-load only what the active tab needs.
         switch ($this->tab) {
             case 'overview':
-                app(PayGroService::class)->refreshCustomerStatusesFromPayGro($customer);
-                $customer->refresh();
                 $data['overview'] = app(PayGroService::class)->buildCustomerFinancialOverview($customer);
                 break;
             case 'payments':
@@ -550,16 +595,15 @@ class CustomerProfile extends Component
      */
     protected function buildPaymentSummary(Customer $customer): array
     {
-        $query = $this->filteredPaymentsQuery($customer);
-        $totalCount = (clone $query)->count();
-        $totalAmount = (float) (clone $query)->sum('amount');
-        $lastPaidAt = (clone $query)->max('paid_at');
+        $stats = $this->filteredPaymentsQuery($customer)
+            ->selectRaw('COUNT(*) as total_count, COALESCE(SUM(amount), 0) as total_amount, COALESCE(SUM(days_credited), 0) as total_days_credited, MAX(paid_at) as last_payment_at')
+            ->first();
 
         return [
-            'total_amount' => $totalAmount,
-            'total_count' => $totalCount,
-            'last_payment_at' => $lastPaidAt ? \Illuminate\Support\Carbon::parse($lastPaidAt) : null,
-            'total_days_credited' => (int) (clone $query)->sum('days_credited'),
+            'total_amount' => (float) ($stats->total_amount ?? 0),
+            'total_count' => (int) ($stats->total_count ?? 0),
+            'last_payment_at' => ($stats->last_payment_at ?? null) ? \Illuminate\Support\Carbon::parse($stats->last_payment_at) : null,
+            'total_days_credited' => (int) ($stats->total_days_credited ?? 0),
         ];
     }
 

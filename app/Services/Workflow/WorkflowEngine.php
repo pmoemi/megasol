@@ -11,6 +11,7 @@ use App\Models\Workflow;
 use App\Models\WorkflowExecution;
 use App\Services\Campaign\CampaignService;
 use App\Services\Email\EmailSendService;
+use App\Services\Sms\AfricasTalkingSmsService;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -86,7 +87,13 @@ class WorkflowEngine
      */
     protected function sendSmsStep(array $step, Customer $customer): void
     {
-        if (! $customer->phone) {
+        if ($customer->sms_opted_out) {
+            return;
+        }
+
+        $phone = app(AfricasTalkingSmsService::class)->resolveRecipientPhone((string) ($customer->phone ?? ''));
+
+        if ($phone === null) {
             return;
         }
 
@@ -94,13 +101,19 @@ class WorkflowEngine
 
         $sms = SmsMessage::create([
             'customer_id' => $customer->id,
-            'to' => $customer->phone,
+            'to' => $phone,
             'body' => $body,
             'direction' => 'outbound',
             'status' => 'queued',
+            'meta' => ['source' => 'workflow'],
         ]);
 
-        SendSmsJob::dispatch($customer->phone, $body, $sms->id);
+        SendSmsJob::dispatch(
+            to: $phone,
+            message: $body,
+            smsMessageId: $sms->id,
+            meta: ['source' => 'workflow', 'customer_id' => $customer->id],
+        );
     }
 
     /**

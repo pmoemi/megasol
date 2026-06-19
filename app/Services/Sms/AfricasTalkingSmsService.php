@@ -4,6 +4,7 @@ namespace App\Services\Sms;
 
 use AfricasTalking\SDK\AfricasTalking;
 use App\Models\SmsMessage;
+use App\Support\SmsConfigurator;
 use App\Traits\NormalizesPhoneNumbers;
 use Illuminate\Support\Facades\Log;
 
@@ -13,6 +14,11 @@ class AfricasTalkingSmsService
 
     /** @var array<string, AfricasTalking> */
     protected array $clients = [];
+
+    public function resetClients(): void
+    {
+        $this->clients = [];
+    }
 
     protected function client(?string $username = null, ?string $apiKey = null): AfricasTalking
     {
@@ -83,8 +89,20 @@ class AfricasTalkingSmsService
         ?string $username = null,
         ?string $apiKey = null,
     ): array {
+        $credentials = SmsConfigurator::credentialsForSend($username, $apiKey, $senderId);
+        $username = $credentials['username'];
+        $apiKey = $credentials['api_key'];
+        $senderId = $credentials['sender_id'];
+
+        $this->resetClients();
+
         $to = $this->normalizePhone($to);
-        $senderId = $senderId ?: config('africastalking.sender_id');
+
+        if (! $this->isValidKenyanMobile($to)) {
+            throw new \RuntimeException(
+                'Invalid Kenyan mobile number: '.$to.'. Use format 254725584124 or 0725584124.'
+            );
+        }
 
         $payload = [
             'to' => $to,
@@ -114,7 +132,24 @@ class AfricasTalkingSmsService
             $response = $this->client($username, $apiKey)->sms()->send($payload);
             $parsed = $this->parseSendResponse($response);
 
+            if (! $parsed['success']) {
+                $errorMessage = $parsed['error'] ?? 'Africa\'s Talking rejected the SMS (status: '.$parsed['status'].').';
+
+                $log->update([
+                    'to' => $to,
+                    'provider_message_id' => $parsed['message_id'],
+                    'status' => $parsed['status'] === 'unknown' ? 'failed' : $parsed['status'],
+                    'provider_response' => $parsed['raw'],
+                    'cost' => $parsed['cost'],
+                    'error_message' => $errorMessage,
+                    'sent_at' => now(),
+                ]);
+
+                throw new \RuntimeException($errorMessage);
+            }
+
             $log->update([
+                'to' => $to,
                 'provider_message_id' => $parsed['message_id'],
                 'status' => $parsed['status'],
                 'provider_response' => $parsed['raw'],
@@ -158,13 +193,18 @@ class AfricasTalkingSmsService
      */
     public function sendBulk(array $recipients, string $message, ?string $senderId = null, array $meta = []): array
     {
+        $credentials = SmsConfigurator::credentialsForSend(null, null, $senderId);
+        $senderId = $credentials['sender_id'];
+
+        $this->resetClients();
+
         $phones = $this->normalizePhones($recipients);
+        $phones = array_values(array_filter($phones, fn (string $phone) => $this->isValidKenyanMobile($phone)));
 
         if ($phones === []) {
             return ['success' => false, 'results' => []];
         }
 
-        $senderId = $senderId ?: config('africastalking.sender_id');
         $enqueue = (bool) config('africastalking.enqueue_bulk', true);
 
         $payload = [
@@ -194,7 +234,7 @@ class AfricasTalkingSmsService
         }
 
         try {
-            $response = $this->client()->sms()->send($payload);
+            $response = $this->client($credentials['username'], $credentials['api_key'])->sms()->send($payload);
             $entries = $this->parseBulkSendResponse($response);
             $results = [];
 
@@ -238,17 +278,87 @@ class AfricasTalkingSmsService
     protected function parseSendResponse(mixed $response): array
     {
         $data = $this->responseToArray($response);
-        $recipient = $data['SMSMessageData']['Recipients'][0] ?? $data['Recipients'][0] ?? [];
 
-        $status = $recipient['status'] ?? 'Unknown';
-        $success = ! in_array(strtolower((string) $status), ['failed', 'rejected', 'invalidphoneNumber'], true);
+        if (strtolower((string) ($data['status'] ?? '')) === 'error') {
+            return [
+                'success' => false,
+                'message_id' => null,
+                'status' => 'failed',
+                'cost' => null,
+                'raw' => $data,
+                'error' => $this->formatSdkError($data),
+            ];
+        }
+
+        $payload = $this->unwrapSdkPayload($data);
+        $recipient = $this->firstRecipient($payload);
+        $overallMessage = $payload['SMSMessageData']['Message'] ?? null;
+
+        if (is_string($overallMessage) && str_contains($overallMessage, 'Sent to 0/')) {
+            return [
+                'success' => false,
+                'message_id' => null,
+                'status' => 'failed',
+                'cost' => null,
+                'raw' => $data,
+                'error' => $overallMessage,
+            ];
+        }
+
+        $status = $recipient['status'] ?? null;
+        $statusCode = isset($recipient['statusCode']) ? (int) $recipient['statusCode'] : null;
+
+        if (! $status && $statusCode !== null) {
+            $status = $this->statusFromCode($statusCode);
+        }
+        if (! $status && strtolower((string) ($data['status'] ?? '')) === 'success') {
+            $status = 'Success';
+        }
+
+        $status = (string) ($status ?: 'Unknown');
+        $normalizedStatus = strtolower($status);
+        $messageId = $recipient['messageId'] ?? $recipient['message_id'] ?? null;
+
+        if ($normalizedStatus === 'userinblacklist') {
+            return [
+                'success' => false,
+                'message_id' => $messageId,
+                'status' => 'rejected',
+                'cost' => isset($recipient['cost']) ? (string) $recipient['cost'] : null,
+                'raw' => $data,
+                'error' => 'This phone number is blacklisted on Africa\'s Talking.',
+            ];
+        }
+
+        if ($normalizedStatus === 'success' || $statusCode === 100 || $statusCode === 101) {
+            $success = true;
+            $normalizedStatus = $statusCode === 101 ? 'sent' : 'success';
+        } else {
+            $success = ! in_array($normalizedStatus, ['failed', 'rejected', 'invalidphonenumber'], true);
+
+            if ($normalizedStatus === 'unknown') {
+                $success = $messageId !== null && $messageId !== '';
+            }
+
+            if ($statusCode !== null && ! in_array($statusCode, [100, 101], true)) {
+                $success = false;
+            }
+        }
+
+        $error = null;
+        if (! $success) {
+            $error = $recipient['status']
+                ?? (is_string($overallMessage) ? $overallMessage : null)
+                ?? $this->formatSdkError($data);
+        }
 
         return [
             'success' => $success,
-            'message_id' => $recipient['messageId'] ?? $recipient['message_id'] ?? null,
-            'status' => strtolower((string) $status),
+            'message_id' => $messageId,
+            'status' => $normalizedStatus,
             'cost' => isset($recipient['cost']) ? (string) $recipient['cost'] : null,
             'raw' => $data,
+            'error' => is_string($error) ? $error : null,
         ];
     }
 
@@ -259,34 +369,157 @@ class AfricasTalkingSmsService
     protected function parseBulkSendResponse(mixed $response): array
     {
         $data = $this->responseToArray($response);
-        $recipients = $data['SMSMessageData']['Recipients'] ?? $data['Recipients'] ?? [];
+        $payload = $this->unwrapSdkPayload($data);
+        $recipients = $payload['SMSMessageData']['Recipients'] ?? $payload['Recipients'] ?? [];
 
-        return array_map(function (array $recipient) {
-            $status = $recipient['status'] ?? 'Unknown';
+        if (! is_array($recipients)) {
+            return [];
+        }
+
+        return array_map(function ($recipient) {
+            $recipient = is_array($recipient) ? $recipient : [];
+            $status = $recipient['status'] ?? null;
+            if (! $status && isset($recipient['statusCode'])) {
+                $status = $this->statusFromCode((int) $recipient['statusCode']);
+            }
 
             return [
                 'number' => $recipient['number'] ?? null,
                 'message_id' => $recipient['messageId'] ?? $recipient['message_id'] ?? null,
-                'status' => strtolower((string) $status),
+                'status' => strtolower((string) ($status ?: 'Unknown')),
                 'cost' => isset($recipient['cost']) ? (string) $recipient['cost'] : null,
             ];
         }, $recipients);
     }
 
+    /**
+     * AfricasTalking PHP SDK v3 wraps API payloads as:
+     * ['status' => 'success', 'data' => ['SMSMessageData' => ...]].
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function unwrapSdkPayload(array $data): array
+    {
+        if (! isset($data['data'])) {
+            return $data;
+        }
+
+        $inner = $data['data'];
+        if (is_object($inner)) {
+            $inner = json_decode(json_encode($inner), true);
+        }
+
+        if (is_array($inner) && (isset($inner['SMSMessageData']) || isset($inner['Recipients']))) {
+            return $inner;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    protected function firstRecipient(array $payload): array
+    {
+        $recipients = $payload['SMSMessageData']['Recipients'] ?? $payload['Recipients'] ?? [];
+
+        if (! is_array($recipients) || $recipients === []) {
+            return [];
+        }
+
+        $recipient = $recipients[0] ?? reset($recipients);
+
+        return is_array($recipient) ? $recipient : [];
+    }
+
+    protected function statusFromCode(int $code): string
+    {
+        return match ($code) {
+            100 => 'Processed',
+            101 => 'Sent',
+            102 => 'Rejected',
+            401, 402 => 'Failed',
+            default => 'Unknown',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    protected function formatSdkError(array $data): string
+    {
+        $payload = $data['data'] ?? null;
+
+        if (is_string($payload) && trim($payload) !== '') {
+            return trim($payload);
+        }
+
+        if (is_array($payload)) {
+            foreach (['errorMessage', 'message', 'description'] as $key) {
+                if (! empty($payload[$key]) && is_string($payload[$key])) {
+                    return $payload[$key];
+                }
+            }
+        }
+
+        $message = $data['SMSMessageData']['Message'] ?? null;
+        if (is_string($message) && trim($message) !== '') {
+            return trim($message);
+        }
+
+        return 'Africa\'s Talking returned an error response.';
+    }
+
     protected function responseToArray(mixed $response): array
     {
         if (is_array($response)) {
-            return $response;
+            return $this->deepArray($response);
         }
 
         if (is_object($response) && method_exists($response, 'json')) {
-            return (array) $response->json();
+            return $this->deepArray((array) $response->json());
         }
 
         if (is_object($response) && method_exists($response, 'toArray')) {
-            return $response->toArray();
+            return $this->deepArray($response->toArray());
         }
 
-        return json_decode(json_encode($response), true) ?? [];
+        return $this->deepArray(json_decode(json_encode($response), true) ?? []);
+    }
+
+    /**
+     * @param  array<mixed>  $value
+     * @return array<string, mixed>
+     */
+    protected function deepArray(array $value): array
+    {
+        return json_decode(json_encode($value), true) ?? [];
+    }
+
+    public function normalizePhoneNumber(string $phone): string
+    {
+        return $this->normalizePhone($phone);
+    }
+
+    public function isValidKenyanMobileNumber(string $phone): bool
+    {
+        return $this->isValidKenyanMobile($phone);
+    }
+
+    /**
+     * Normalize and validate a recipient phone for outbound SMS.
+     * Returns null when the number cannot be delivered reliably.
+     */
+    public function resolveRecipientPhone(string $phone): ?string
+    {
+        if (trim($phone) === '') {
+            return null;
+        }
+
+        $normalized = $this->normalizePhone($phone);
+
+        return $this->isValidKenyanMobile($normalized) ? $normalized : null;
     }
 }

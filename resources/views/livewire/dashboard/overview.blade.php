@@ -98,7 +98,7 @@
         @endphp
 
         @foreach($cards as $card)
-        <div class="relative bg-gradient-to-br {{ $card['gradient'] }} rounded-xl border border-border overflow-hidden hover:shadow-sm hover:-translate-y-0.5 transition-all duration-200 group bg-surface-2">
+        <div class="relative bg-gradient-to-br {{ $card['gradient'] }} rounded-2xl border border-border overflow-hidden hover:shadow-sm hover:-translate-y-0.5 transition-all duration-200 group bg-surface-2">
             <div class="relative p-3.5">
                 <div class="flex items-center gap-2 mb-2">
                     <div class="w-8 h-8 {{ $card['icon_bg'] }} rounded-lg flex items-center justify-center shrink-0">
